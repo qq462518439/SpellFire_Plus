@@ -167,13 +167,34 @@ namespace SpellFire.RuntimeHost.Components
                         detail.Append(" ExistingModule=0x").Append(existingModule.BaseAddress.ToString("X"));
                         bool alreadyReady = HookReadySignal.IsSet(processId);
                         detail.Append(" ReadySignal=").Append(alreadyReady);
-                        return new RuntimeComponentStatus
+                        if (alreadyReady)
                         {
-                            Name = Name,
-                            Ready = alreadyReady,
-                            Reason = alreadyReady ? "HookAlreadyReady" : "HookLoadedButReadySignalMissing",
-                            Detail = detail.ToString()
-                        };
+                            return new RuntimeComponentStatus
+                            {
+                                Name = Name,
+                                Ready = true,
+                                Reason = "HookAlreadyReady",
+                                Detail = detail.ToString()
+                            };
+                        }
+
+                        detail.Append(" StaleUnloadAttempted=True");
+                        bool unloaded = robot.Libraries.FreeLibrary(existingModule.BaseAddress, 5000);
+                        detail.Append(" StaleUnloadResult=").Append(unloaded);
+                        Thread.Sleep(250);
+                        bool stillLoaded = robot.Modules.GetModules()
+                            .Any(module => string.Equals(module.Name, "SpellFire.Hook.dll", StringComparison.OrdinalIgnoreCase));
+                        detail.Append(" StaleModuleStillLoaded=").Append(stillLoaded);
+                        if (!unloaded || stillLoaded)
+                        {
+                            return new RuntimeComponentStatus
+                            {
+                                Name = Name,
+                                Ready = false,
+                                Reason = "HookLoadedButReadySignalMissing_UnloadFailed",
+                                Detail = detail.ToString()
+                            };
+                        }
                     }
 
                     readyEvent.Reset();

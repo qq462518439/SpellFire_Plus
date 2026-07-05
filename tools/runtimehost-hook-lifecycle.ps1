@@ -30,20 +30,40 @@ function Resolve-MSBuildPath {
 function Invoke-Cli {
     param(
         [string]$Command,
-        [int]$Pid
+        [int]$TargetProcessId
     )
 
-    Write-Output "START hook-lifecycle-$Command pid=$Pid"
-    $output = & $runtimeHostCliExe $Command $Pid
+    Write-Output "START hook-lifecycle-$Command pid=$TargetProcessId"
+    $output = & $runtimeHostCliExe $Command $TargetProcessId
     $exitCode = $LASTEXITCODE
     foreach ($line in $output) {
         Write-Output $line
     }
 
-    return @{
+    $script:lastCliResult = @{
         ExitCode = $exitCode
         Output = ($output -join "`n")
     }
+}
+
+function Test-Output {
+    param(
+        [hashtable]$Result,
+        [string[]]$Patterns
+    )
+
+    if ($Result.ExitCode -ne 0) {
+        return $false
+    }
+
+    foreach ($pattern in $Patterns) {
+        if ($Result.Output -notmatch $pattern) {
+            Write-Output "FAIL hook-lifecycle-assert Pattern=`"$pattern`" Output=`"$($Result.Output)`""
+            return $false
+        }
+    }
+
+    return $true
 }
 
 if (-not $SkipBuild) {
@@ -74,25 +94,36 @@ if ($ProcessId -le 0) {
     $ProcessId = $wow.Id
 }
 
-$cleanupBefore = Invoke-Cli -Command cleanup -Pid $ProcessId
-$attach = Invoke-Cli -Command attach -Pid $ProcessId
-$repeatAttach = Invoke-Cli -Command attach -Pid $ProcessId
-$status = Invoke-Cli -Command status -Pid $ProcessId
-$commandPing = Invoke-Cli -Command command-ping -Pid $ProcessId
-$hookInfo = Invoke-Cli -Command hook-info -Pid $ProcessId
-$readSelfModule = Invoke-Cli -Command read-self-module -Pid $ProcessId
-$shutdown = Invoke-Cli -Command shutdown -Pid $ProcessId
-$postStatus = Invoke-Cli -Command status -Pid $ProcessId
-$cleanupAfter = Invoke-Cli -Command cleanup -Pid $ProcessId
+Invoke-Cli -Command cleanup -TargetProcessId $ProcessId
+$cleanupBefore = $script:lastCliResult
+Invoke-Cli -Command attach -TargetProcessId $ProcessId
+$attach = $script:lastCliResult
+
+Invoke-Cli -Command attach -TargetProcessId $ProcessId
+$repeatAttach = $script:lastCliResult
+Invoke-Cli -Command status -TargetProcessId $ProcessId
+$status = $script:lastCliResult
+Invoke-Cli -Command command-ping -TargetProcessId $ProcessId
+$commandPing = $script:lastCliResult
+Invoke-Cli -Command hook-info -TargetProcessId $ProcessId
+$hookInfo = $script:lastCliResult
+Invoke-Cli -Command read-self-module -TargetProcessId $ProcessId
+$readSelfModule = $script:lastCliResult
+Invoke-Cli -Command shutdown -TargetProcessId $ProcessId
+$shutdown = $script:lastCliResult
+Invoke-Cli -Command status -TargetProcessId $ProcessId
+$postStatus = $script:lastCliResult
+Invoke-Cli -Command cleanup -TargetProcessId $ProcessId
+$cleanupAfter = $script:lastCliResult
 
 $ok = $true
-$ok = $ok -and $attach.ExitCode -eq 0 -and $attach.Output -match "HookReady|HookAlreadyReady"
-$ok = $ok -and $repeatAttach.ExitCode -eq 0 -and $repeatAttach.Output -match "HookAlreadyReady"
-$ok = $ok -and $status.ExitCode -eq 0 -and $status.Output -match "HookServiceAlive"
-$ok = $ok -and $commandPing.ExitCode -eq 0 -and $commandPing.Output -match "HookCommandPingOk"
-$ok = $ok -and $hookInfo.ExitCode -eq 0 -and $hookInfo.Output -match "HookInfoOk"
-$ok = $ok -and $readSelfModule.ExitCode -eq 0 -and $readSelfModule.Output -match "HookSelfModuleReadOk"
-$ok = $ok -and $shutdown.ExitCode -eq 0 -and $shutdown.Output -match "HookShutdownRequested"
+$ok = $ok -and (Test-Output -Result $attach -Patterns @("HookReady|HookAlreadyReady", "Ready=True"))
+$ok = $ok -and (Test-Output -Result $repeatAttach -Patterns @("HookAlreadyReady", "Ready=True", "ExistingModule=0x", "ReadySignal=True"))
+$ok = $ok -and (Test-Output -Result $status -Patterns @("HookServiceAlive", "Ready=True", "ReadySignal=True", "HeartbeatSignal=True"))
+$ok = $ok -and (Test-Output -Result $commandPing -Patterns @("HookCommandPingOk", "Ack=True", "Magic=0x53464850", "HeaderSize=88", "Status=0x53464F4B", "Result=0x50494E47"))
+$ok = $ok -and (Test-Output -Result $hookInfo -Patterns @("HookInfoOk", "Ack=True", "Magic=0x53464850", "HeaderSize=88", "Status=0x53464F4B", "Result=0x494E464F", "HookProcessId=$ProcessId", "HookProtocolVersion=2"))
+$ok = $ok -and (Test-Output -Result $readSelfModule -Patterns @("HookSelfModuleReadOk", "Ack=True", "Magic=0x53464850", "HeaderSize=88", "Status=0x53464F4B", "Result=0x50455244", "DosSignature=0x5A4D", "PeSignature=0x4550", "Machine=0x14C", "SectionCount=[1-9][0-9]*"))
+$ok = $ok -and (Test-Output -Result $shutdown -Patterns @("HookShutdownRequested", "Ready=True"))
 $ok = $ok -and $postStatus.ExitCode -ne 0 -and $postStatus.Output -match "HookServiceUnavailable"
 $ok = $ok -and $cleanupBefore.ExitCode -eq 0 -and $cleanupAfter.ExitCode -eq 0
 

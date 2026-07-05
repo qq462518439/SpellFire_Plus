@@ -110,13 +110,6 @@ $attachOutput = & $runtimeHostCliExe attach $ProcessId
 $attachOutput
 $attachExit = $LASTEXITCODE
 
-if ($attachOutput -match "HookLoadedButReadySignalMissing") {
-    Write-Output "START runtimehost-cleanup-after"
-    & $runtimeHostCliExe cleanup
-    Write-Output "FAIL runtimehost-smoke pid=$ProcessId Reason=`"ExistingStaleHookPayload`" Hint=`"The target process already contains SpellFire.Hook.dll but ready/heartbeat is not alive. Restart the target process before a full smoke run.`""
-    exit 3
-}
-
 Write-Output "START runtimehost-repeat-attach pid=$ProcessId"
 $repeatOutput = & $runtimeHostCliExe attach $ProcessId
 $repeatOutput

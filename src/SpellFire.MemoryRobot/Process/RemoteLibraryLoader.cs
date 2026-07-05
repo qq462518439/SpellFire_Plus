@@ -73,5 +73,28 @@ namespace SpellFire.MemoryRobot.Process
                 }
             }
         }
+
+        public bool FreeLibrary(IntPtr remoteModuleHandle, int timeoutMilliseconds = 10000)
+        {
+            if (remoteModuleHandle == IntPtr.Zero)
+            {
+                throw new ArgumentException("Remote module handle must not be zero.", nameof(remoteModuleHandle));
+            }
+
+            IntPtr kernel32Handle = Kernel32Native.GetModuleHandle("kernel32.dll");
+            if (kernel32Handle == IntPtr.Zero)
+            {
+                MemoryRobotException.ThrowLast("GetModuleHandle(kernel32.dll)");
+            }
+
+            IntPtr freeLibraryAddress = Kernel32Native.GetProcAddress(kernel32Handle, "FreeLibrary");
+            if (freeLibraryAddress == IntPtr.Zero)
+            {
+                MemoryRobotException.ThrowLast("GetProcAddress(FreeLibrary)");
+            }
+
+            uint exitCode = threadRunner.Run(freeLibraryAddress, remoteModuleHandle, timeoutMilliseconds);
+            return exitCode != 0;
+        }
     }
 }
