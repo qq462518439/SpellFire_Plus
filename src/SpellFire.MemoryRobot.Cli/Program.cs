@@ -8,6 +8,8 @@ using SpellFire.MemoryRobot.Native;
 using SpellFire.MemoryRobot.Process;
 using SpellFire.MemoryRobot.Reading;
 using SpellFire.MemoryRobot.Writing;
+using SpellFire.Runtime;
+using SpellFire.Runtime.Models;
 
 namespace SpellFire.MemoryRobot.Cli
 {
@@ -32,6 +34,8 @@ namespace SpellFire.MemoryRobot.Cli
                 {
                     case "probe":
                         return RunProbe(processId);
+                    case "runtime-probe":
+                        return RunRuntimeProbe(processId);
                     case "probe-expect":
                         return RunProbeExpect(processId, args);
                     case "session-open-close":
@@ -81,6 +85,24 @@ namespace SpellFire.MemoryRobot.Cli
             bool ready = string.Equals(probe.Reason, "SessionOpened", StringComparison.Ordinal);
             WriteLine((ready ? "OK" : "FAIL") + " probe TargetProcessId=" + processId + " Reason=\"" + probe.Reason + "\" " + FormatProbe(probe));
             return ready ? 0 : 1;
+        }
+
+        private static int RunRuntimeProbe(int processId)
+        {
+            var facade = new RuntimeFacade();
+            RuntimeMemoryProbeSnapshot probe = facade.ProbeMemory(processId);
+            bool ok = probe.Ready && string.Equals(probe.Reason, "SessionOpened", StringComparison.Ordinal);
+            WriteLine((ok ? "OK" : "FAIL") +
+                      " runtime-probe TargetProcessId=" + processId +
+                      " Ready=" + probe.Ready +
+                      " Reason=\"" + Escape(probe.Reason) + "\"" +
+                      " ProcessFound=" + probe.ProcessFound +
+                      " ProcessName=\"" + Escape(probe.ProcessName) + "\"" +
+                      " TargetWow64Known=" + probe.TargetWow64Known +
+                      " TargetWow64=" + probe.TargetWow64 +
+                      " Win32Error=" + probe.Win32Error +
+                      " Win32Message=\"" + Escape(probe.Win32Message) + "\"");
+            return ok ? 0 : 1;
         }
 
         private static int RunProbeExpect(int processId, string[] args)
@@ -522,7 +544,7 @@ namespace SpellFire.MemoryRobot.Cli
 
         private static void WriteUsage()
         {
-            WriteLine("Usage: SpellFire.MemoryRobot.Cli <probe|probe-expect|session-open-close|close-then-reopen|snapshot-after-close|session-close-all|process-exit-after-open|module-snapshot|memory-region|remote-alloc-free|write-remote-allocation|remote-thread-invalid-start|load-library-missing-file|self-remote-thread-get-current-process-id|self-load-library-known-system-dll|try-read-invalid> [pid] [expectedReason]");
+            WriteLine("Usage: SpellFire.MemoryRobot.Cli <probe|runtime-probe|probe-expect|session-open-close|close-then-reopen|snapshot-after-close|session-close-all|process-exit-after-open|module-snapshot|memory-region|remote-alloc-free|write-remote-allocation|remote-thread-invalid-start|load-library-missing-file|self-remote-thread-get-current-process-id|self-load-library-known-system-dll|try-read-invalid> [pid] [expectedReason]");
         }
     }
 }

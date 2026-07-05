@@ -11,5 +11,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SpellFire.MemoryRobot\SpellFire.MemoryRobot.csproj" />
+    <ProjectReference Include="..\SpellFire.Runtime\SpellFire.Runtime.csproj" />
   </ItemGroup>
 </Project>

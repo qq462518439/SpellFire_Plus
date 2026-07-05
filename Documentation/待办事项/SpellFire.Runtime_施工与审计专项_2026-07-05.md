@@ -20,8 +20,8 @@
 它当前负责：
 
 1. 对上提供统一合同
-2. 对下消费 `SpellFire.RuntimeHost`
-3. 将宿主结果转换成稳定快照模型
+2. 对下消费底层组件的诊断/能力合同
+3. 将底层结果转换成稳定快照模型
 
 它当前不负责：
 
@@ -39,6 +39,9 @@
 5. `RuntimeSessionService`
 6. `RuntimeFacade`
 7. `RuntimeCompositionRoot`
+8. `IRuntimeMemoryProbeService`
+9. `RuntimeMemoryProbeSnapshot`
+10. `RuntimeMemoryProbeService`
 
 ## 当前边界
 
@@ -46,6 +49,7 @@
 
 1. attach 一个进程
 2. 返回一份宿主快照
+3. 通过 `ProbeMemory(processId)` 暴露 `SpellFire.MemoryRobot` 的只读诊断结果
 
 当前不做：
 
@@ -53,6 +57,8 @@
 2. Wow 语义服务编排
 3. 导航接线
 4. 插件接线
+5. HookReady 生命周期接管
+6. 底层内存读写实现
 
 ## 当前阶段
 
@@ -62,15 +68,57 @@
 
 不是成品，因为：
 
-1. 它现在还只汇总宿主状态
-2. 还没有向 `WowRuntime` 提供统一消费面
+1. 它现在只提供 attach 快照与 memory probe 快照
+2. 还没有对象层、Lua 层、运动层等稳定上游服务
+3. 还没有形成主程序连接流程的最终切换门槛
 
 ## 下一步
 
 下一刀应做：
 
-1. 让 `SpellFire.Runtime` 消费 `WowRuntime` 的只读能力
+1. 先固定 `ProbeMemory(processId)` 作为 Runtime 消费 `SpellFire.MemoryRobot` 的第一条稳定链路
+2. 再补 Runtime 层的长期连接/释放协议，但不把 MemoryRobot 的实现细节搬进 Runtime
+3. 等 Runtime 有明确消费方后，再决定是否新增对象层/Lua 层服务
 
 不是：
 
 1. 把实现细节反灌进 `SpellFire.Runtime`
+2. 把 `RuntimeHost` 当成生产宿主
+3. 把 HookReady、Lua、对象层提前塞进 MemoryRobot
+
+## 2026-07-05 Runtime 消费 MemoryRobot 第一刀
+
+本轮新增的是诊断消费链，不是主流程切换：
+
+1. `IRuntimeFacade.ProbeMemory(int processId)`
+2. `IRuntimeMemoryProbeService`
+3. `RuntimeMemoryProbeSnapshot`
+4. `RuntimeMemoryProbeService`
+5. `RuntimeCompositionRoot` 默认组合 `RuntimeMemoryProbeService`
+6. `SpellFire.MemoryRobot.Cli runtime-probe` 用来验证 Runtime facade 能消费 MemoryRobot 诊断
+
+边界：
+
+1. `RuntimeMemoryProbeService` 只调用 `MemorySessionDiagnostics.Probe(processId)`。
+2. `Runtime` 不直接持有 `MemorySession`。
+3. `Runtime` 不负责远程分配、远程线程、LoadLibrary。
+4. `Runtime` 不因此接管 HookReady。
+5. `RuntimeHost` 仍是测试壳，不是生产主宿主。
+
+验收命令：
+
+```text
+dotnet build .\src\SpellFire.Runtime\SpellFire.Runtime.csproj -c Debug
+dotnet build .\src\SpellFire.MemoryRobot.Cli\SpellFire.MemoryRobot.Cli.csproj -c Debug
+powershell -ExecutionPolicy Bypass -File .\tools\memoryrobot-smoke.ps1 -SkipBuild
+powershell -ExecutionPolicy Bypass -File .\tools\memoryrobot-failure-matrix.ps1 -SkipBuild
+```
+
+本轮验收结果：
+
+```text
+dotnet build .\src\SpellFire.Runtime\SpellFire.Runtime.csproj -c Debug: OK, 0 warnings, 0 errors
+dotnet build .\src\SpellFire.MemoryRobot.Cli\SpellFire.MemoryRobot.Cli.csproj -c Debug: OK, 0 warnings, 0 errors
+memoryrobot-smoke: OK, included OK runtime-probe TargetProcessId=11632 Ready=True Reason="SessionOpened"
+memoryrobot-failure-matrix: OK
+```

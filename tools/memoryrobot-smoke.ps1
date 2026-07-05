@@ -48,6 +48,7 @@ function Invoke-MemoryRobotCommand {
 
 $commands = @(
     "probe",
+    "runtime-probe",
     "session-open-close",
     "close-then-reopen",
     "snapshot-after-close",
