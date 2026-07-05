@@ -81,39 +81,15 @@
 
 下一刀应做：
 
-1. 将主程序连接流程接到 `Evaluate -> Connect -> GetConnection -> Disconnect` 契约上
-2. 主程序接入前，先新增一个只消费 `SpellFire.Runtime` 的最小宿主适配层
-3. 等宿主适配层稳定后，再决定是否新增对象层/Lua 层服务
+1. 固定 `Connect / Disconnect / GetConnection` 作为主程序未来连接流程的候选协议
+2. 给 Runtime 增加“只读连接状态审计”脚本或 CLI 命令，确认重复连接/重复释放/目标退出路径
+3. 等连接生命周期稳定后，再决定是否新增对象层/Lua 层服务
 
 不是：
 
 1. 把实现细节反灌进 `SpellFire.Runtime`
 2. 把 `RuntimeHost` 当成生产宿主
 3. 把 HookReady、Lua、对象层提前塞进 MemoryRobot
-
-## 主程序接入契约
-
-主程序未来只能按以下顺序消费 Runtime：
-
-1. `Evaluate(processId)`
-2. 如果 `ReadyToConnect=True` 且 `Decision="ReadyToConnect"`，才允许 `Connect(processId)`
-3. 连接后通过 `GetConnection(processId)` 查询当前连接状态
-4. 关闭、切换进程、目标进程退出时必须调用 `Disconnect(processId)`
-
-禁止路径：
-
-1. 主程序直接绕过 `Evaluate` 调 `Connect`
-2. 主程序直接引用 `SpellFire.RuntimeHost`
-3. 主程序直接引用 `SpellFire.MemoryRobot` 做连接判断
-4. 主程序在连接阶段触发对象层、Lua、运动或 HookReady
-
-当前 Runtime 已验证的接入前置：
-
-1. 成功候选：`ReadyToConnect`
-2. 已连接：`AlreadyConnected`
-3. 缺失进程：`MemoryNotReady:ProcessUnavailable`
-4. 权限拒绝：`MemoryNotReady:AccessDenied`
-5. 64 位目标：`MemoryNotReady:TargetNot32Bit`
 
 ## 2026-07-05 Runtime 消费 MemoryRobot 第一刀
 
