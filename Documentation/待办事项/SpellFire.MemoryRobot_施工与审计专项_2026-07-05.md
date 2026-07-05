@@ -69,14 +69,13 @@
 
 ## 当前定级
 
-`SpellFire.MemoryRobot` 当前定级为：**可继续推进的底层组件**。
+`SpellFire.MemoryRobot` 当前定级为：**已有专属验收入口的底层内存组件**。
 
 不是“业务成品”，原因：
 
-1. 还没有独立于 `RuntimeHost` 的 MemoryRobot 专属验收脚本。
-2. 读写结果模型刚补齐，缺少直接覆盖 `TryRead/TryWrite` 的专属样本。
-3. session 生命周期已有基础接口，但缺少竞态样本，例如目标进程退出中、重复打开关闭、关闭后再读写。
-4. 远程线程和 LoadLibrary 能力存在，但还没有被收口成 MemoryRobot 自己的验收矩阵。
+1. 还没有目标进程退出中的竞态样本。
+2. 远程线程和 LoadLibrary 能力存在，但还没有被收口成 MemoryRobot 自己的专属验收矩阵。
+3. 还没有把 `MemoryRobot.Cli` 包装成正式发布工具。
 
 不再使用的旧口径：
 
@@ -197,20 +196,101 @@ runtimehost-smoke pid=11892 -Shutdown: OK
 2. session manager 在退出竞态下足够稳定。
 3. 模块/页面/远程分配 API 已形成 MemoryRobot 自身验收闭环。
 
-## 下一刀
+## 2026-07-05 专属 smoke 第一刀
 
-下一刀应该做：**MemoryRobot 专属 smoke CLI / 脚本**。
+本轮已新增 `SpellFire.MemoryRobot.Cli`，不再只借 `RuntimeHost` 验收 MemoryRobot。
 
-最小命令建议：
+新增项目：
+
+1. `src/SpellFire.MemoryRobot.Cli/SpellFire.MemoryRobot.Cli.csproj`
+2. `src/SpellFire.MemoryRobot.Cli/Program.cs`
+
+新增脚本：
+
+1. `tools/memoryrobot-smoke.ps1`
+
+当前命令：
 
 1. `probe <pid>`
 2. `session-open-close <pid>`
 3. `module-snapshot <pid>`
 4. `memory-region <pid>`
 5. `remote-alloc-free <pid>`
-6. `try-read-invalid`
+6. `try-read-invalid <pid>`
 
-暂不做 `try-write-real-process`，除非写入目标是本工具自己启动的安全子进程或远程临时分配页。
+已验证：
+
+```text
+dotnet build SpellFire.MemoryRobot.Cli: OK
+memoryrobot-smoke pid=11892: OK
+```
+
+覆盖证据：
+
+1. `probe`：`SessionOpened`
+2. `session-open-close`：`CloseResult=True` 且关闭后快照不存在
+3. `module-snapshot`：能枚举模块，首模块为 `Wow.exe`
+4. `memory-region`：能查询页面区域
+5. `remote-alloc-free`：能远程分配并释放
+6. `try-read-invalid`：失败结果能返回 `Success=False`、`BytesRead=0`、`Win32Error=299`
+
+当前状态：
+
+1. MemoryRobot 已有自己的最小验收入口。
+2. RuntimeHost smoke 仍可作为消费方回归，但不再是 MemoryRobot 唯一证据。
+
+## 2026-07-05 失败矩阵与安全写入第一刀
+
+本轮继续扩展 `SpellFire.MemoryRobot.Cli` 和专属脚本。
+
+新增 CLI 命令：
+
+1. `probe-expect <pid> <expectedReason>`
+2. `close-then-reopen <pid>`
+3. `write-remote-allocation <pid>`
+
+新增脚本：
+
+1. `tools/memoryrobot-failure-matrix.ps1`
+
+`memoryrobot-smoke.ps1` 已追加：
+
+1. `close-then-reopen`
+2. `write-remote-allocation`
+
+安全写入边界：
+
+1. 只写入 `MemoryRobot` 自己通过 `VirtualAllocEx` 分配出来的远程临时页。
+2. 不写游戏真实业务地址。
+3. 写入后立即读回验证，再释放临时页。
+
+已验证：
+
+```text
+memoryrobot-smoke pid=11632: OK
+memoryrobot-failure-matrix: OK
+```
+
+覆盖证据：
+
+1. `close-then-reopen`：关闭指定 PID session 后可重新打开。
+2. `write-remote-allocation`：`WriteSuccess=True`、`ReadSuccess=True`、`PayloadMatches=True`、`Freed=True`。
+3. `missing-process`：`ProcessUnavailable`
+4. `system-access`：`AccessDenied`
+5. `explorer-bitness`：`TargetNot32Bit`
+
+## 下一刀
+
+下一刀应该做：**补远程线程/LoadLibrary 的 MemoryRobot 专属验收矩阵**。
+
+最小命令建议：
+
+1. `load-library-known-safe <pid>`
+2. `remote-thread-invalid-start <pid>`
+3. `process-exit-after-open`
+4. `session-close-all`
+
+`load-library-known-safe` 只能加载系统 DLL 或自家测试 DLL，不能触碰业务 HookReady 路径。
 
 ## 停工线
 

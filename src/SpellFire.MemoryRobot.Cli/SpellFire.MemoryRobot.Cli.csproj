@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <RootNamespace>SpellFire.MemoryRobot.Cli</RootNamespace>
+    <AssemblyName>SpellFire.MemoryRobot.Cli</AssemblyName>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <PlatformTarget>x86</PlatformTarget>
+    <Prefer32Bit>true</Prefer32Bit>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SpellFire.MemoryRobot\SpellFire.MemoryRobot.csproj" />
+  </ItemGroup>
+</Project>
