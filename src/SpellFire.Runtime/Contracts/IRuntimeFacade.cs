@@ -13,5 +13,7 @@ namespace SpellFire.Runtime.Contracts
         RuntimeConnectionSnapshot GetConnection(int processId);
 
         RuntimeMemoryProbeSnapshot ProbeMemory(int processId);
+
+        RuntimeEvaluationSnapshot Evaluate(int processId);
     }
 }

@@ -198,3 +198,41 @@ memoryrobot-smoke:
   TargetExitOk=True
 memoryrobot-failure-matrix: OK
 ```
+
+## 2026-07-06 Runtime 主程序候选状态入口第一刀
+
+本轮新增只读入口：
+
+1. `IRuntimeFacade.Evaluate(int processId)`
+2. `RuntimeEvaluationSnapshot`
+3. `SpellFire.MemoryRobot.Cli runtime-evaluate`
+4. `tools/memoryrobot-smoke.ps1` 纳入 `runtime-evaluate`
+
+语义：
+
+1. `Evaluate` 不自动连接。
+2. `Evaluate` 不触发 HookReady。
+3. `Evaluate` 不读 Wow 对象层。
+4. `Evaluate` 只汇总 `ProbeMemory(processId)` 与 `GetConnection(processId)`。
+5. 主程序未来可先调用 `Evaluate` 决定是否允许走 `Connect`。
+
+验收标准：
+
+```text
+连接前：ReadyToConnect=True, Decision="ReadyToConnect"
+连接后：ReadyToConnect=False, Decision="AlreadyConnected"
+释放后：ReadyToConnect=True, Decision="ReadyToConnect"
+```
+
+本轮验收结果：
+
+```text
+dotnet build .\src\SpellFire.Runtime\SpellFire.Runtime.csproj -c Debug: OK, 0 warnings, 0 errors
+dotnet build .\src\SpellFire.MemoryRobot.Cli\SpellFire.MemoryRobot.Cli.csproj -c Debug: OK after cleaning stale RuntimeHost obj output
+memoryrobot-smoke:
+  OK runtime-evaluate
+  BeforeConnect={ReadyToConnect=True Decision="ReadyToConnect"}
+  AfterConnect={ReadyToConnect=False Decision="AlreadyConnected"}
+  AfterDisconnect={ReadyToConnect=True Decision="ReadyToConnect"}
+memoryrobot-failure-matrix: OK
+```

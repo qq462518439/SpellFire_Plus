@@ -36,6 +36,8 @@ namespace SpellFire.MemoryRobot.Cli
                         return RunProbe(processId);
                     case "runtime-probe":
                         return RunRuntimeProbe(processId);
+                    case "runtime-evaluate":
+                        return RunRuntimeEvaluate(processId);
                     case "runtime-connect-disconnect":
                         return RunRuntimeConnectDisconnect(processId);
                     case "runtime-lifecycle-audit":
@@ -106,6 +108,34 @@ namespace SpellFire.MemoryRobot.Cli
                       " TargetWow64=" + probe.TargetWow64 +
                       " Win32Error=" + probe.Win32Error +
                       " Win32Message=\"" + Escape(probe.Win32Message) + "\"");
+            return ok ? 0 : 1;
+        }
+
+        private static int RunRuntimeEvaluate(int processId)
+        {
+            var facade = new RuntimeFacade();
+            RuntimeEvaluationSnapshot beforeConnect = facade.Evaluate(processId);
+            RuntimeConnectionSnapshot connected = facade.Connect(processId);
+            RuntimeEvaluationSnapshot afterConnect = facade.Evaluate(processId);
+            RuntimeConnectionSnapshot disconnected = facade.Disconnect(processId);
+            RuntimeEvaluationSnapshot afterDisconnect = facade.Evaluate(processId);
+
+            bool ok = beforeConnect.ReadyToConnect &&
+                      string.Equals(beforeConnect.Decision, "ReadyToConnect", StringComparison.Ordinal) &&
+                      connected.Connected &&
+                      !afterConnect.ReadyToConnect &&
+                      string.Equals(afterConnect.Decision, "AlreadyConnected", StringComparison.Ordinal) &&
+                      disconnected.Disconnected &&
+                      afterDisconnect.ReadyToConnect &&
+                      string.Equals(afterDisconnect.Decision, "ReadyToConnect", StringComparison.Ordinal);
+
+            WriteLine((ok ? "OK" : "FAIL") +
+                      " runtime-evaluate TargetProcessId=" + processId +
+                      " BeforeConnect=" + FormatRuntimeEvaluation(beforeConnect) +
+                      " Connected=" + FormatRuntimeConnection(connected) +
+                      " AfterConnect=" + FormatRuntimeEvaluation(afterConnect) +
+                      " Disconnected=" + FormatRuntimeConnection(disconnected) +
+                      " AfterDisconnect=" + FormatRuntimeEvaluation(afterDisconnect));
             return ok ? 0 : 1;
         }
 
@@ -650,6 +680,21 @@ namespace SpellFire.MemoryRobot.Cli
                    "}";
         }
 
+        private static string FormatRuntimeEvaluation(RuntimeEvaluationSnapshot snapshot)
+        {
+            if (snapshot == null)
+            {
+                return "none";
+            }
+
+            return "{ReadyToConnect=" + snapshot.ReadyToConnect +
+                   " Decision=\"" + Escape(snapshot.Decision) + "\"" +
+                   " MemoryReady=" + (snapshot.Memory != null && snapshot.Memory.Ready) +
+                   " MemoryReason=\"" + Escape(snapshot.Memory == null ? string.Empty : snapshot.Memory.Reason) + "\"" +
+                   " Connection=" + FormatRuntimeConnection(snapshot.Connection) +
+                   "}";
+        }
+
         private static string Escape(string value)
         {
             return (value ?? string.Empty).Replace("\\", "\\\\").Replace("\"", "\\\"");
@@ -662,7 +707,7 @@ namespace SpellFire.MemoryRobot.Cli
 
         private static void WriteUsage()
         {
-            WriteLine("Usage: SpellFire.MemoryRobot.Cli <probe|runtime-probe|runtime-connect-disconnect|runtime-lifecycle-audit|probe-expect|session-open-close|close-then-reopen|snapshot-after-close|session-close-all|process-exit-after-open|module-snapshot|memory-region|remote-alloc-free|write-remote-allocation|remote-thread-invalid-start|load-library-missing-file|self-remote-thread-get-current-process-id|self-load-library-known-system-dll|try-read-invalid> [pid] [expectedReason]");
+            WriteLine("Usage: SpellFire.MemoryRobot.Cli <probe|runtime-probe|runtime-evaluate|runtime-connect-disconnect|runtime-lifecycle-audit|probe-expect|session-open-close|close-then-reopen|snapshot-after-close|session-close-all|process-exit-after-open|module-snapshot|memory-region|remote-alloc-free|write-remote-allocation|remote-thread-invalid-start|load-library-missing-file|self-remote-thread-get-current-process-id|self-load-library-known-system-dll|try-read-invalid> [pid] [expectedReason]");
         }
     }
 }

@@ -49,5 +49,41 @@ namespace SpellFire.Runtime
         {
             return memoryProbeService.Probe(processId);
         }
+
+        public RuntimeEvaluationSnapshot Evaluate(int processId)
+        {
+            RuntimeMemoryProbeSnapshot memory = memoryProbeService.Probe(processId);
+            RuntimeConnectionSnapshot connection = sessionService.GetConnection(processId);
+            bool readyToConnect = memory.Ready && (connection == null || !connection.Connected);
+
+            return new RuntimeEvaluationSnapshot
+            {
+                ProcessId = processId,
+                ReadyToConnect = readyToConnect,
+                Decision = CreateDecision(memory, connection, readyToConnect),
+                Memory = memory,
+                Connection = connection
+            };
+        }
+
+        private static string CreateDecision(RuntimeMemoryProbeSnapshot memory, RuntimeConnectionSnapshot connection, bool readyToConnect)
+        {
+            if (connection != null && connection.Connected)
+            {
+                return "AlreadyConnected";
+            }
+
+            if (memory == null)
+            {
+                return "MemoryProbeUnavailable";
+            }
+
+            if (!memory.Ready)
+            {
+                return "MemoryNotReady:" + memory.Reason;
+            }
+
+            return readyToConnect ? "ReadyToConnect" : "NotReady";
+        }
     }
 }
