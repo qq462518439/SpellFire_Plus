@@ -38,6 +38,8 @@ namespace SpellFire.MemoryRobot.Cli
                         return RunRuntimeProbe(processId);
                     case "runtime-connect-disconnect":
                         return RunRuntimeConnectDisconnect(processId);
+                    case "runtime-lifecycle-audit":
+                        return RunRuntimeLifecycleAudit(processId);
                     case "probe-expect":
                         return RunProbeExpect(processId, args);
                     case "session-open-close":
@@ -132,6 +134,76 @@ namespace SpellFire.MemoryRobot.Cli
                       " Disconnected=" + FormatRuntimeConnection(disconnected) +
                       " StatusAfterDisconnect=" + FormatRuntimeConnection(statusAfterDisconnect));
             return ok ? 0 : 1;
+        }
+
+        private static int RunRuntimeLifecycleAudit(int processId)
+        {
+            var facade = new RuntimeFacade();
+            RuntimeConnectionSnapshot firstConnect = facade.Connect(processId);
+            RuntimeConnectionSnapshot secondConnect = facade.Connect(processId);
+            RuntimeConnectionSnapshot firstDisconnect = facade.Disconnect(processId);
+            RuntimeConnectionSnapshot secondDisconnect = facade.Disconnect(processId);
+
+            bool repeatedConnectOk = firstConnect.Connected &&
+                                     secondConnect.Connected &&
+                                     firstConnect.SessionExists &&
+                                     secondConnect.SessionExists;
+            bool repeatedDisconnectOk = firstDisconnect.Disconnected &&
+                                        firstDisconnect.SessionDisposed &&
+                                        !secondDisconnect.SessionExists &&
+                                        string.Equals(secondDisconnect.Reason, "SessionNotFound", StringComparison.Ordinal);
+            bool targetExitOk = RunRuntimeTargetExitAudit(out string targetExitDetail);
+            bool ok = repeatedConnectOk && repeatedDisconnectOk && targetExitOk;
+
+            WriteLine((ok ? "OK" : "FAIL") +
+                      " runtime-lifecycle-audit TargetProcessId=" + processId +
+                      " RepeatedConnectOk=" + repeatedConnectOk +
+                      " FirstConnect=" + FormatRuntimeConnection(firstConnect) +
+                      " SecondConnect=" + FormatRuntimeConnection(secondConnect) +
+                      " RepeatedDisconnectOk=" + repeatedDisconnectOk +
+                      " FirstDisconnect=" + FormatRuntimeConnection(firstDisconnect) +
+                      " SecondDisconnect=" + FormatRuntimeConnection(secondDisconnect) +
+                      " TargetExitOk=" + targetExitOk +
+                      " TargetExit={" + targetExitDetail + "}");
+            return ok ? 0 : 1;
+        }
+
+        private static bool RunRuntimeTargetExitAudit(out string detail)
+        {
+            System.Diagnostics.Process child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe",
+                Arguments = "/c ping 127.0.0.1 -n 2 > nul",
+                CreateNoWindow = true,
+                UseShellExecute = false
+            });
+
+            if (child == null)
+            {
+                detail = "ChildProcessStartFailed";
+                return false;
+            }
+
+            int childPid = child.Id;
+            var childFacade = new RuntimeFacade();
+            RuntimeConnectionSnapshot connected = childFacade.Connect(childPid);
+            bool exited = child.WaitForExit(5000);
+            RuntimeConnectionSnapshot disconnected = childFacade.Disconnect(childPid);
+            RuntimeConnectionSnapshot afterDisconnect = childFacade.GetConnection(childPid);
+
+            bool ok = connected.Connected &&
+                      exited &&
+                      disconnected.Disconnected &&
+                      disconnected.SessionDisposed &&
+                      !afterDisconnect.SessionExists &&
+                      string.Equals(afterDisconnect.Reason, "SessionNotFound", StringComparison.Ordinal);
+
+            detail = "ChildProcessId=" + childPid +
+                     " Connected=" + FormatRuntimeConnection(connected) +
+                     " ChildExited=" + exited +
+                     " Disconnected=" + FormatRuntimeConnection(disconnected) +
+                     " AfterDisconnect=" + FormatRuntimeConnection(afterDisconnect);
+            return ok;
         }
 
         private static int RunProbeExpect(int processId, string[] args)
@@ -590,7 +662,7 @@ namespace SpellFire.MemoryRobot.Cli
 
         private static void WriteUsage()
         {
-            WriteLine("Usage: SpellFire.MemoryRobot.Cli <probe|runtime-probe|runtime-connect-disconnect|probe-expect|session-open-close|close-then-reopen|snapshot-after-close|session-close-all|process-exit-after-open|module-snapshot|memory-region|remote-alloc-free|write-remote-allocation|remote-thread-invalid-start|load-library-missing-file|self-remote-thread-get-current-process-id|self-load-library-known-system-dll|try-read-invalid> [pid] [expectedReason]");
+            WriteLine("Usage: SpellFire.MemoryRobot.Cli <probe|runtime-probe|runtime-connect-disconnect|runtime-lifecycle-audit|probe-expect|session-open-close|close-then-reopen|snapshot-after-close|session-close-all|process-exit-after-open|module-snapshot|memory-region|remote-alloc-free|write-remote-allocation|remote-thread-invalid-start|load-library-missing-file|self-remote-thread-get-current-process-id|self-load-library-known-system-dll|try-read-invalid> [pid] [expectedReason]");
         }
     }
 }

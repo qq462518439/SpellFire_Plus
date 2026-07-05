@@ -172,3 +172,29 @@ memoryrobot-smoke:
   StatusAfterDisconnect={Connected=False Disconnected=False HostState="Detached" SessionExists=False Reason="SessionNotFound"}
 memoryrobot-failure-matrix: OK
 ```
+
+## 2026-07-06 Runtime 生命周期审计第一刀
+
+本轮新增固定审计命令：
+
+1. `SpellFire.MemoryRobot.Cli runtime-lifecycle-audit`
+2. `tools/memoryrobot-smoke.ps1` 纳入 `runtime-lifecycle-audit`
+
+覆盖路径：
+
+1. 重复 `Connect(processId)`：应复用现有连接并保持 `Connected=True`
+2. 重复 `Disconnect(processId)`：第一次释放，第二次返回 `SessionNotFound`
+3. 目标进程退出后 `Disconnect(processId)`：应完成清理，之后 `GetConnection(processId)` 返回 `SessionNotFound`
+
+本轮验收结果：
+
+```text
+dotnet build .\src\SpellFire.Runtime\SpellFire.Runtime.csproj -c Debug: OK, 0 warnings, 0 errors
+dotnet build .\src\SpellFire.MemoryRobot.Cli\SpellFire.MemoryRobot.Cli.csproj -c Debug: OK, 0 warnings, 0 errors
+memoryrobot-smoke:
+  OK runtime-lifecycle-audit
+  RepeatedConnectOk=True
+  RepeatedDisconnectOk=True
+  TargetExitOk=True
+memoryrobot-failure-matrix: OK
+```
