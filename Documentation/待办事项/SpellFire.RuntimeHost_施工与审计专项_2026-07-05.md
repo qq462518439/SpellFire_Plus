@@ -793,3 +793,72 @@ runtimehost-smoke pid=3296 -Shutdown: OK
 2. 重新碰第三方 runtime
 3. 先接 Wow 语义层
 4. 在生命周期未设计前强行远程卸载 payload
+
+## 2026-07-06 Lua 冒烟真实门槛
+
+用户验收目标：
+
+1. `Lua冒烟` 按钮必须让游戏内人物跳跃。
+2. `Lua冒烟` 按钮必须让游戏内输出 `SPELLFIRE_LUA_OK`。
+3. 禁止使用键盘输入、粘贴、`SendInput`、模拟按键等方式伪装跳跃或文字。
+
+当前 Plus 事实：
+
+1. `SpellFire.Hook` 只有 ready / heartbeat / shutdown / command-ping / hook-info / read-self-module。
+2. Plus 当前没有真实 Lua bridge。
+3. Plus 当前没有游戏函数级 Jump bridge。
+4. 因此当前不能宣称 Lua 冒烟完成。
+
+旧 Well 链证据：
+
+1. `FrameScript__Execute = 0x819210`
+2. `FrameScript__GetLocalizedText = 0x7225E0`
+3. 旧链执行跳跃使用：
+
+```text
+FrameScript__Execute("JumpOrAscendStart()", 0, 0)
+```
+
+4. 旧链不是从任意 worker thread 直接调用 Lua，而是通过 `CommandQueue` 把命令排到 EndScene 线程执行。
+5. `CommandQueue.RunCommands()` 在 `EndScenePatch` 中被调用。
+
+因此 Plus 的真实 Lua 冒烟必须先完成：
+
+1. 在 `SpellFire.Hook` 内建立等价的主线程/EndScene 执行队列，或找到同等安全的游戏主线程执行点。
+2. 在主线程执行点调用 `FrameScript__Execute`。
+3. Lua 冒烟固定脚本必须包含：
+
+```text
+JumpOrAscendStart()
+DEFAULT_CHAT_FRAME:AddMessage("SPELLFIRE_LUA_OK")
+```
+
+4. `Lua冒烟` 按钮只有在 Hook 命令成功进入主线程队列并完成 FrameScript 调用后，才允许返回成功。
+
+禁止提交内容：
+
+1. `SendInput`
+2. `keybd_event`
+3. 模拟 Space / Enter
+4. 粘贴 `/run ...`
+5. 任何只靠日志 OK、但不能证明游戏内 Lua 执行的实现
+
+当前停工口径：
+
+```text
+LuaSmokeBlockedUntilMainThreadFrameScriptBridge
+```
+
+已新增静态门禁：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\runtimehost-lua-gate.ps1
+```
+
+门禁作用：
+
+1. 禁止 `SendInput` / `keybd_event` / `VK_SPACE` / `/run print` 等伪冒烟。
+2. 禁止把 `HookLuaSmokeOk` 这类日志成功口径写进代码。
+3. 如果代码出现 `FrameScript__Execute` 或 `0x819210`，必须同时出现主线程/EndScene 执行门，否则失败。
+
+这条门禁不能证明 Lua 冒烟完成，只用于防止再次把输入链伪装成 Lua 冒烟。
