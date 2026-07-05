@@ -9,10 +9,5 @@ namespace SpellFire.Runtime.Bootstrap
         {
             return new RuntimeFacade(new RuntimeSessionService(), new RuntimeMemoryProbeService());
         }
-
-        public static IRuntimeHostAdapter CreateDefaultHostAdapter()
-        {
-            return new RuntimeHostAdapter(CreateDefaultFacade());
-        }
     }
 }

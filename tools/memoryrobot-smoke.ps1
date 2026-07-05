@@ -50,7 +50,6 @@ $commands = @(
     "probe",
     "runtime-probe",
     "runtime-evaluate",
-    "runtime-host-adapter",
     "runtime-connect-disconnect",
     "runtime-lifecycle-audit",
     "session-open-close",

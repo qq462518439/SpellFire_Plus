@@ -115,51 +115,6 @@
 4. 权限拒绝：`MemoryNotReady:AccessDenied`
 5. 64 位目标：`MemoryNotReady:TargetNot32Bit`
 
-## 2026-07-06 最小宿主适配层第一刀
-
-本轮新增只消费 `SpellFire.Runtime` 的宿主适配层：
-
-1. `IRuntimeHostAdapter`
-2. `RuntimeHostAdapter`
-3. `RuntimeHostAttachSnapshot`
-4. `RuntimeCompositionRoot.CreateDefaultHostAdapter()`
-5. `SpellFire.MemoryRobot.Cli runtime-host-adapter`
-6. `tools/memoryrobot-smoke.ps1` 纳入 `runtime-host-adapter`
-
-边界：
-
-1. 适配层只依赖 `IRuntimeFacade`。
-2. 适配层不直接引用 `SpellFire.RuntimeHost`。
-3. 适配层不直接引用 `SpellFire.MemoryRobot`。
-4. 适配层不触发对象层、Lua、运动或 HookReady。
-5. 适配层固定主程序接入顺序：`Evaluate -> Connect -> GetConnection -> Disconnect`。
-
-验收标准：
-
-```text
-runtime-host-adapter:
-  Attached.Accepted=True
-  Attached.Decision="Connected"
-  Attached.Evaluation.ReadyToConnect=True
-  Status.Connected=True
-  Detached.Disconnected=True
-  AfterDetach.Reason="SessionNotFound"
-```
-
-本轮验收结果：
-
-```text
-dotnet build .\src\SpellFire.Runtime\SpellFire.Runtime.csproj -c Debug: OK, 0 warnings, 0 errors
-dotnet build .\src\SpellFire.MemoryRobot.Cli\SpellFire.MemoryRobot.Cli.csproj -c Debug: OK, 0 warnings, 0 errors
-memoryrobot-smoke:
-  OK runtime-host-adapter
-  Attached={Accepted=True Decision="Connected"}
-  Status={Connected=True}
-  Detached={Disconnected=True}
-  AfterDetach={Reason="SessionNotFound"}
-memoryrobot-failure-matrix: OK
-```
-
 ## 2026-07-05 Runtime 消费 MemoryRobot 第一刀
 
 本轮新增的是诊断消费链，不是主流程切换：
