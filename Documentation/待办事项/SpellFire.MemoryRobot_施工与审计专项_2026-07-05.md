@@ -58,15 +58,22 @@
 19. 已有 `MemorySessionDiagnostics / MemorySessionProbeResult`
 20. 已有 `ISystemLibraryResolver / SystemLibraryResolver`
 
-当前能被验证的能力：
+当前能被 `MemoryRobot` 专属 smoke 验证的能力：
 
 1. 打开真实 32 位 Wow 进程
 2. 拒绝不存在的 PID
 3. 识别权限拒绝
 4. 识别 64 位目标不适配
 5. 完成远程分配/释放前置验证
-6. 支撑 `SpellFire.Hook` 的 `LoadLibraryW` 注入 smoke
-7. 支撑 Hook command-ping / hook-info / read-self-module smoke
+6. 安全写入远程临时页并读回
+7. 模块快照
+8. 页面查询
+9. session 打开/关闭/重开/全局释放
+10. 目标进程退出后旧 session 移除
+11. 远程线程错误路径
+12. LoadLibrary 错误路径
+13. CLI 自进程远程线程成功路径
+14. CLI 自进程 LoadLibrary 成功路径
 
 ## 当前定级
 
@@ -74,9 +81,9 @@
 
 不是“业务成品”，原因：
 
-1. 还没有目标进程退出中的竞态样本。
-2. 远程线程和 LoadLibrary 已有专属验收，成功路径限制在 CLI 自进程，避免污染 Wow。
-3. 还没有把 `MemoryRobot.Cli` 包装成正式发布工具。
+1. 还没有把 `MemoryRobot.Cli` 包装成正式发布工具。
+2. 还没有长期压力样本。
+3. 还没有被 `SpellFire.Runtime` 正式消费。
 
 不再使用的旧口径：
 
@@ -154,16 +161,10 @@
 
 优先级从高到低：
 
-1. 缺少 MemoryRobot 专属 CLI 或脚本，不应该长期借 `RuntimeHost` 验收。
-2. 缺少 `TryRead/TryWrite` 的可重复样本。
-3. 缺少 session 生命周期样本：
-   - 打开后关闭
-   - 重复打开同一 PID
-   - 关闭后再次打开
-   - 目标进程退出后快照状态
-4. 缺少模块快照的专属验收。
-5. 缺少页面查询的专属验收。
-6. 缺少远程分配/释放/改保护的专属验收。
+1. 缺少长期压力样本。
+2. 缺少发布包装。
+3. 缺少 `SpellFire.Runtime` 正式消费链。
+4. 缺少更严格的输出协议测试。
 
 当前不补：
 
@@ -176,7 +177,7 @@
 
 ## 验收现状
 
-已跑过：
+历史上跑过：
 
 ```text
 dotnet build SpellFire.MemoryRobot: OK
@@ -185,13 +186,13 @@ memory-probe-matrix: OK
 runtimehost-smoke pid=11892 -Shutdown: OK
 ```
 
-这只能证明：
+这些 RuntimeHost 验收只能证明：
 
 1. MemoryRobot 当前构建通过。
 2. MemoryRobot 的基础进程打开诊断没有破坏。
 3. Hook smoke 仍能消费 MemoryRobot 的远程执行能力。
 
-这还不能证明：
+以下项目现在已由 `MemoryRobot` 专属 smoke 覆盖，不再属于缺口：
 
 1. `TryRead/TryWrite` 已被专属样本覆盖。
 2. session manager 在退出竞态下足够稳定。
