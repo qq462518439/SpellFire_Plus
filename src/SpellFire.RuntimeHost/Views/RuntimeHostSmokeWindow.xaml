@@ -1,0 +1,109 @@
+<Window x:Class="SpellFire.RuntimeHost.Views.RuntimeHostSmokeWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SpellFire RuntimeHost 冒烟"
+        Width="1120"
+        Height="600"
+        MinWidth="920"
+        MinHeight="460"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource PrimaryBackgroundBrush}">
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock Text="SpellFire RuntimeHost 冒烟"
+                       Foreground="{StaticResource PrimaryTextBrush}"
+                       FontSize="22"
+                       FontWeight="SemiBold"/>
+            <TextBlock Text="独立测试壳：只验证 RuntimeHost 宿主、MemoryRobot、SpellFireHook 前置条件，不经过主程序工具箱和旧运行时链。"
+                       Foreground="{StaticResource SecondaryTextBrush}"
+                       FontSize="12"
+                       Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <Border Grid.Row="1"
+                Margin="0,14,0,10"
+                Padding="12"
+                Background="{StaticResource SecondaryBackgroundBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="140"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Text="PID"
+                           VerticalAlignment="Center"
+                           Foreground="{StaticResource PrimaryTextBrush}"
+                           Margin="0,0,8,0"/>
+                <TextBox x:Name="txtProcessId"
+                         Grid.Column="1"
+                         VerticalContentAlignment="Center"
+                         Style="{StaticResource AppTextBoxStyle}"/>
+                <Button Grid.Column="2"
+                        Content="查找游戏进程"
+                        Margin="10,0,0,0"
+                        Style="{StaticResource GhostButtonStyle}"
+                        Click="BtnFindWowProcess_Click"/>
+                <Button Grid.Column="3"
+                        Content="清空 PID"
+                        Margin="8,0,0,0"
+                        Style="{StaticResource GhostButtonStyle}"
+                        Click="BtnClearPid_Click"/>
+                <Button Grid.Column="4"
+                        Content="清空日志"
+                        Margin="8,0,0,0"
+                        Style="{StaticResource GhostButtonStyle}"
+                        Click="BtnClearLog_Click"/>
+                <TextBlock x:Name="txtStatus"
+                           Grid.Column="5"
+                           VerticalAlignment="Center"
+                           Foreground="{StaticResource SecondaryTextBrush}"
+                           Margin="12,0,0,0"
+                           TextWrapping="NoWrap"
+                           TextTrimming="CharacterEllipsis"/>
+            </Grid>
+        </Border>
+
+        <WrapPanel Grid.Row="2" Margin="0,0,0,10">
+            <Button Content="Attach" Margin="0,0,8,8" Style="{StaticResource PrimaryButtonStyle}" Click="BtnAttach_Click"/>
+            <Button Content="宿主快照" Margin="0,0,8,8" Style="{StaticResource GhostButtonStyle}" Click="BtnHostSnapshot_Click"/>
+            <Button Content="MemoryRobot" Margin="0,0,8,8" Style="{StaticResource GhostButtonStyle}" Click="BtnMemoryRobot_Click"/>
+            <Button Content="SpellFireHook" Margin="0,0,8,8" Style="{StaticResource GhostButtonStyle}" Click="BtnHook_Click"/>
+            <Button Content="运行全部冒烟" Margin="0,0,8,8" Style="{StaticResource GhostButtonStyle}" Click="BtnRunAll_Click"/>
+            <Button Content="复制日志" Margin="0,0,8,8" Style="{StaticResource GhostButtonStyle}" Click="BtnCopyLog_Click"/>
+        </WrapPanel>
+
+        <Border Grid.Row="3"
+                Background="{StaticResource SecondaryBackgroundBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="10">
+            <TextBox x:Name="txtLog"
+                     AcceptsReturn="True"
+                     IsReadOnly="True"
+                     VerticalScrollBarVisibility="Auto"
+                     HorizontalScrollBarVisibility="Auto"
+                     TextWrapping="NoWrap"
+                     ScrollViewer.CanContentScroll="True"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     Foreground="{StaticResource PrimaryTextBrush}"
+                     FontFamily="Consolas"
+                     FontSize="12"/>
+        </Border>
+    </Grid>
+</Window>

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>SpellFire.RuntimeHost</RootNamespace>
+    <AssemblyName>SpellFire.RuntimeHost</AssemblyName>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <PlatformTarget>x86</PlatformTarget>
+    <Prefer32Bit>true</Prefer32Bit>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SpellFire.MemoryRobot\SpellFire.MemoryRobot.csproj" />
+  </ItemGroup>
+
+  <Target Name="CopySpellFireHookPayload" AfterTargets="Build">
+    <ItemGroup>
+      <SpellFireHookPayload Include="..\SpellFire.Hook\bin\$(Configuration)\SpellFire.Hook.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(SpellFireHookPayload)"
+          DestinationFiles="@(SpellFireHookPayload->'$(OutputPath)SpellFire.Hook.source.dll')"
+          SkipUnchangedFiles="true"
+          Condition="Exists('%(SpellFireHookPayload.FullPath)')" />
+  </Target>
+</Project>

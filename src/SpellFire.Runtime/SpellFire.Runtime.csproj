@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <RootNamespace>SpellFire.Runtime</RootNamespace>
+    <AssemblyName>SpellFire.Runtime</AssemblyName>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SpellFire.MemoryRobot\SpellFire.MemoryRobot.csproj" />
+    <ProjectReference Include="..\SpellFire.RuntimeHost\SpellFire.RuntimeHost.csproj" />
+  </ItemGroup>
+</Project>
