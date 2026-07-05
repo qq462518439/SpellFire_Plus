@@ -122,3 +122,48 @@ dotnet build .\src\SpellFire.MemoryRobot.Cli\SpellFire.MemoryRobot.Cli.csproj -c
 memoryrobot-smoke: OK, included OK runtime-probe TargetProcessId=11632 Ready=True Reason="SessionOpened"
 memoryrobot-failure-matrix: OK
 ```
+
+## 2026-07-05 Runtime 连接/释放协议第一刀
+
+本轮新增的是 Runtime 层显式生命周期协议，不改变底层实现职责：
+
+1. `IRuntimeFacade.Connect(int processId)`
+2. `IRuntimeFacade.Disconnect(int processId)`
+3. `IRuntimeFacade.GetConnection(int processId)`
+4. `IRuntimeSessionService.Connect(int processId)`
+5. `IRuntimeSessionService.Disconnect(int processId)`
+6. `IRuntimeSessionService.GetConnection(int processId)`
+7. `RuntimeConnectionSnapshot`
+8. `SpellFire.MemoryRobot.Cli runtime-connect-disconnect`
+
+边界：
+
+1. `Attach(processId)` 保持一次性快照兼容。
+2. `Connect(processId)` 表达长期连接意图，底层会话由 `RuntimeHost` 持有。
+3. `Disconnect(processId)` 只负责释放 Runtime 当前持有的 host session。
+4. 本刀不新增对象层、Lua 层、运动层。
+5. 本刀不改变 `SpellFire.MemoryRobot` 本体职责。
+6. 本刀不让 Runtime 接管 HookReady 策略。
+
+验收标准：
+
+```text
+runtime-connect-disconnect:
+  Connect 后 Connected=True, SessionExists=True, SessionDisposed=False
+  GetConnection 后 Connected=True
+  Disconnect 后 Disconnected=True, SessionDisposed=True
+  Disconnect 后再次 GetConnection 返回 SessionNotFound
+```
+
+本轮验收结果：
+
+```text
+dotnet build .\src\SpellFire.Runtime\SpellFire.Runtime.csproj -c Debug: OK, 0 warnings, 0 errors
+dotnet build .\src\SpellFire.MemoryRobot.Cli\SpellFire.MemoryRobot.Cli.csproj -c Debug: OK, 0 warnings, 0 errors
+memoryrobot-smoke:
+  OK runtime-connect-disconnect
+  Connected={Connected=True Disconnected=False HostState="Ready" SessionExists=True SessionDisposed=False}
+  Disconnected={Connected=False Disconnected=True HostState="Detached" SessionExists=True SessionDisposed=True}
+  StatusAfterDisconnect={Connected=False Disconnected=False HostState="Detached" SessionExists=False Reason="SessionNotFound"}
+memoryrobot-failure-matrix: OK
+```

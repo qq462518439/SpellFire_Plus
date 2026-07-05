@@ -6,6 +6,8 @@ namespace SpellFire.RuntimeHost.Abstractions
     {
         IRuntimeHostSession Attach(int processId);
 
+        bool Detach(int processId, out IRuntimeHostSession detachedSession);
+
         IReadOnlyList<IRuntimeHostSession> GetSessions();
     }
 }

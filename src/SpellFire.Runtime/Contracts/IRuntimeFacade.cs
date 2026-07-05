@@ -6,6 +6,12 @@ namespace SpellFire.Runtime.Contracts
     {
         RuntimeSessionSnapshot Attach(int processId);
 
+        RuntimeConnectionSnapshot Connect(int processId);
+
+        RuntimeConnectionSnapshot Disconnect(int processId);
+
+        RuntimeConnectionSnapshot GetConnection(int processId);
+
         RuntimeMemoryProbeSnapshot ProbeMemory(int processId);
     }
 }

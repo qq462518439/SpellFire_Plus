@@ -33,6 +33,22 @@ namespace SpellFire.RuntimeHost
             }
         }
 
+        public bool Detach(int processId, out IRuntimeHostSession detachedSession)
+        {
+            lock (syncRoot)
+            {
+                if (!sessions.TryGetValue(processId, out detachedSession) || detachedSession == null)
+                {
+                    detachedSession = null;
+                    return false;
+                }
+
+                detachedSession.Dispose();
+                sessions.Remove(processId);
+                return true;
+            }
+        }
+
         public IReadOnlyList<IRuntimeHostSession> GetSessions()
         {
             lock (syncRoot)
