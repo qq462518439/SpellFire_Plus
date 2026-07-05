@@ -49,7 +49,6 @@ function Invoke-MemoryRobotCommand {
 $commands = @(
     "probe",
     "runtime-probe",
-    "runtime-evaluate",
     "runtime-connect-disconnect",
     "runtime-lifecycle-audit",
     "session-open-close",
