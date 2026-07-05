@@ -19,6 +19,7 @@ namespace SpellFire.MemoryRobot.Process
             Allocator = new RemoteAllocator(concreteSession);
             Threads = new RemoteThreadRunner(concreteSession);
             Libraries = new RemoteLibraryLoader(session, Writer, Allocator, Threads);
+            SystemLibraries = new SystemLibraryResolver();
             Modules = new ProcessModuleSnapshotProvider(concreteSession.Process);
             Regions = new MemoryRegionQueryService(concreteSession);
         }
@@ -34,6 +35,8 @@ namespace SpellFire.MemoryRobot.Process
         public IRemoteThreadRunner Threads { get; }
 
         public IRemoteLibraryLoader Libraries { get; }
+
+        public ISystemLibraryResolver SystemLibraries { get; }
 
         public IModuleSnapshotProvider Modules { get; }
 

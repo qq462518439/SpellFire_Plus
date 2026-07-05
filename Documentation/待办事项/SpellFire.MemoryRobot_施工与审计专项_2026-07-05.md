@@ -56,6 +56,7 @@
 17. 已有 `MemoryRobotFacade`
 18. 已有 `MemoryRobotException`
 19. 已有 `MemorySessionDiagnostics / MemorySessionProbeResult`
+20. 已有 `ISystemLibraryResolver / SystemLibraryResolver`
 
 当前能被验证的能力：
 
@@ -74,7 +75,7 @@
 不是“业务成品”，原因：
 
 1. 还没有目标进程退出中的竞态样本。
-2. 远程线程和 LoadLibrary 能力存在，但还没有被收口成 MemoryRobot 自己的专属验收矩阵。
+2. 远程线程和 LoadLibrary 已有专属验收，成功路径限制在 CLI 自进程，避免污染 Wow。
 3. 还没有把 `MemoryRobot.Cli` 包装成正式发布工具。
 
 不再使用的旧口径：
@@ -279,18 +280,150 @@ memoryrobot-failure-matrix: OK
 4. `system-access`：`AccessDenied`
 5. `explorer-bitness`：`TargetNot32Bit`
 
+## 2026-07-05 远程执行错误路径第一刀
+
+本轮把远程线程 / LoadLibrary 纳入 `MemoryRobot` 专属 smoke，但只验错误路径，不触碰 HookReady 业务链。
+
+新增 CLI 命令：
+
+1. `remote-thread-invalid-start <pid>`
+2. `load-library-missing-file <pid>`
+
+已追加到：
+
+1. `tools/memoryrobot-smoke.ps1`
+
+安全边界：
+
+1. `remote-thread-invalid-start` 使用 `IntPtr.Zero`，在托管侧直接归因为 `ArgumentException`，不会创建有效远程线程。
+2. `load-library-missing-file` 使用不存在的临时 DLL 路径，在本地文件检查阶段归因为 `FileNotFoundException`，不会调用远程 `LoadLibraryW`。
+3. 本轮不加载任何 DLL 到 Wow。
+4. 本轮不复用 `SpellFire.Hook.dll`，不碰 HookReady。
+
+已验证：
+
+```text
+memoryrobot-smoke pid=11632: OK
+memoryrobot-failure-matrix: OK
+```
+
+覆盖证据：
+
+1. `remote-thread-invalid-start`：`Exception="ArgumentException"`
+2. `load-library-missing-file`：`Exception="FileNotFoundException"`
+
+## 2026-07-05 远程执行安全成功路径第一刀
+
+本轮补齐远程线程 / LoadLibrary 的安全成功路径样本，但严格限制在 `SpellFire.MemoryRobot.Cli` 自身进程，不对 Wow 执行成功路径注入。
+
+新增 MemoryRobot 接口：
+
+1. `ISystemLibraryResolver`
+2. `SystemLibraryResolver`
+
+接口边界：
+
+1. 只暴露 `GetModuleHandle`
+2. 只暴露 `GetProcAddress`
+3. 不公开 `Kernel32Native`
+4. 不把 native 层变成上层可随意调用的总线
+
+新增 CLI 命令：
+
+1. `self-remote-thread-get-current-process-id`
+2. `self-load-library-known-system-dll`
+
+已追加到：
+
+1. `tools/memoryrobot-smoke.ps1`
+
+安全边界：
+
+1. `self-remote-thread-get-current-process-id` 在 CLI 自身进程中创建远程线程，调用 `GetCurrentProcessId`，返回值必须等于 CLI 自身 PID。
+2. `self-load-library-known-system-dll` 在 CLI 自身进程中加载系统 DLL：`version.dll`。
+3. 不向 Wow 加载任何 DLL。
+4. 不复用 `SpellFire.Hook.dll`。
+5. 不触碰 HookReady payload。
+
+已验证：
+
+```text
+memoryrobot-smoke pid=11632: OK
+memoryrobot-failure-matrix: OK
+```
+
+覆盖证据：
+
+1. `self-remote-thread-get-current-process-id`：`ExitCode` 等于 CLI 自身 `ProcessId`
+2. `self-load-library-known-system-dll`：`ModuleHandle != 0`
+
+## 2026-07-05 session 退出竞态与清理第一刀
+
+本轮补齐 session 生命周期的专属样本，不依赖 RuntimeHost。
+
+新增 CLI 命令：
+
+1. `snapshot-after-close <pid>`
+2. `session-close-all <pid>`
+3. `process-exit-after-open`
+
+已追加到：
+
+1. `tools/memoryrobot-smoke.ps1`
+
+样本含义：
+
+1. `snapshot-after-close`：打开指定 PID，关闭指定 session 后，快照必须不存在。
+2. `session-close-all`：打开指定 PID，执行全局释放后，快照必须不存在。
+3. `process-exit-after-open`：启动短生命周期子进程，打开 session，等待子进程退出，再次 acquire 必须失败，并且旧 session 必须被移除。
+
+已验证：
+
+```text
+memoryrobot-smoke pid=11632: OK
+```
+
+覆盖证据：
+
+1. `snapshot-after-close`：`CloseResult=True`、`HasSnapshot=False`
+2. `session-close-all`：`HasBefore=True`、`HasAfter=False`
+3. `process-exit-after-open`：`ChildExited=True`、`HasBeforeAcquire=True`、`AcquireFailed=True`、`HasAfterAcquire=False`
+
+## 2026-07-05 CLI 输出协议收口
+
+本轮不新增能力，只整理 `SpellFire.MemoryRobot.Cli` 输出字段，避免审计日志混淆不同进程身份。
+
+字段规则：
+
+1. `TargetProcessId`：外部传入的目标进程，通常是 Wow。
+2. `SelfProcessId`：`SpellFire.MemoryRobot.Cli` 自身进程。
+3. `ChildProcessId`：CLI 为样本启动的短生命周期子进程。
+4. `SnapshotProcessId`：`MemorySessionSnapshot` 内部记录的 PID。
+
+保留：
+
+1. `tools/memoryrobot-smoke.ps1` 的 `START memoryrobot-* pid=<pid>` 仍表示脚本选择的默认目标 PID。
+2. CLI 正式结果行不再使用模糊的 `ProcessId` 表示所有场景。
+
+已验证：
+
+```text
+dotnet build SpellFire.MemoryRobot.Cli: OK
+memoryrobot-smoke pid=11632: OK
+memoryrobot-failure-matrix: OK
+```
+
 ## 下一刀
 
-下一刀应该做：**补远程线程/LoadLibrary 的 MemoryRobot 专属验收矩阵**。
+下一刀应该做：**提交前收口**。
 
 最小命令建议：
 
-1. `load-library-known-safe <pid>`
-2. `remote-thread-invalid-start <pid>`
-3. `process-exit-after-open`
-4. `session-close-all`
-
-`load-library-known-safe` 只能加载系统 DLL 或自家测试 DLL，不能触碰业务 HookReady 路径。
+1. 核对未跟踪文件全部纳入提交范围
+2. 跑 `memoryrobot-smoke`
+3. 跑 `memoryrobot-failure-matrix`
+4. 检查是否仍有 RuntimeHost 文档误改
+5. 分批提交 MemoryRobot 专项
 
 ## 停工线
 

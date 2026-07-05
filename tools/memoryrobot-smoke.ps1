@@ -50,10 +50,17 @@ $commands = @(
     "probe",
     "session-open-close",
     "close-then-reopen",
+    "snapshot-after-close",
+    "session-close-all",
+    "process-exit-after-open",
     "module-snapshot",
     "memory-region",
     "remote-alloc-free",
     "write-remote-allocation",
+    "remote-thread-invalid-start",
+    "load-library-missing-file",
+    "self-remote-thread-get-current-process-id",
+    "self-load-library-known-system-dll",
     "try-read-invalid"
 )
 

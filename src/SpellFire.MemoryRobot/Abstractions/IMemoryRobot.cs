@@ -18,6 +18,8 @@ namespace SpellFire.MemoryRobot.Abstractions
 
         IRemoteLibraryLoader Libraries { get; }
 
+        ISystemLibraryResolver SystemLibraries { get; }
+
         IModuleSnapshotProvider Modules { get; }
 
         MemoryRegionQueryService Regions { get; }

@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.Linq;
+using System.Threading;
 using SpellFire.MemoryRobot.Abstractions;
 using SpellFire.MemoryRobot.Diagnostics;
 using SpellFire.MemoryRobot.Native;
@@ -37,6 +38,12 @@ namespace SpellFire.MemoryRobot.Cli
                         return RunSessionOpenClose(processId);
                     case "close-then-reopen":
                         return RunCloseThenReopen(processId);
+                    case "snapshot-after-close":
+                        return RunSnapshotAfterClose(processId);
+                    case "session-close-all":
+                        return RunSessionCloseAll(processId);
+                    case "process-exit-after-open":
+                        return RunProcessExitAfterOpen();
                     case "module-snapshot":
                         return RunModuleSnapshot(processId);
                     case "memory-region":
@@ -45,6 +52,14 @@ namespace SpellFire.MemoryRobot.Cli
                         return RunRemoteAllocFree(processId);
                     case "write-remote-allocation":
                         return RunWriteRemoteAllocation(processId);
+                    case "remote-thread-invalid-start":
+                        return RunRemoteThreadInvalidStart(processId);
+                    case "load-library-missing-file":
+                        return RunLoadLibraryMissingFile(processId);
+                    case "self-remote-thread-get-current-process-id":
+                        return RunSelfRemoteThreadGetCurrentProcessId();
+                    case "self-load-library-known-system-dll":
+                        return RunSelfLoadLibraryKnownSystemDll();
                     case "try-read-invalid":
                         return RunTryReadInvalid(processId);
                     default:
@@ -64,7 +79,7 @@ namespace SpellFire.MemoryRobot.Cli
         {
             MemorySessionProbeResult probe = new MemorySessionDiagnostics().Probe(processId);
             bool ready = string.Equals(probe.Reason, "SessionOpened", StringComparison.Ordinal);
-            WriteLine((ready ? "OK" : "FAIL") + " probe ProcessId=" + processId + " Reason=\"" + probe.Reason + "\" " + FormatProbe(probe));
+            WriteLine((ready ? "OK" : "FAIL") + " probe TargetProcessId=" + processId + " Reason=\"" + probe.Reason + "\" " + FormatProbe(probe));
             return ready ? 0 : 1;
         }
 
@@ -73,14 +88,14 @@ namespace SpellFire.MemoryRobot.Cli
             string expected = args.Length >= 3 ? args[2] : string.Empty;
             if (string.IsNullOrWhiteSpace(expected))
             {
-                WriteLine("FAIL probe-expect ProcessId=" + processId + " Reason=\"MissingExpectedReason\"");
+                WriteLine("FAIL probe-expect TargetProcessId=" + processId + " Reason=\"MissingExpectedReason\"");
                 return 2;
             }
 
             MemorySessionProbeResult probe = new MemorySessionDiagnostics().Probe(processId);
             bool ok = string.Equals(probe.Reason, expected, StringComparison.Ordinal);
             WriteLine((ok ? "OK" : "FAIL") +
-                      " probe-expect ProcessId=" + processId +
+                      " probe-expect TargetProcessId=" + processId +
                       " ExpectedReason=\"" + Escape(expected) + "\"" +
                       " ActualReason=\"" + Escape(probe.Reason) + "\" " +
                       FormatProbe(probe));
@@ -98,7 +113,7 @@ namespace SpellFire.MemoryRobot.Cli
                 bool hasClosedSnapshot = SessionFactory.TryGetSession(processId, out closedSnapshot);
                 bool ok = hasOpenSnapshot && closeResult && !hasClosedSnapshot;
                 WriteLine((ok ? "OK" : "FAIL") +
-                          " session-open-close ProcessId=" + processId +
+                          " session-open-close TargetProcessId=" + processId +
                           " HasOpenSnapshot=" + hasOpenSnapshot +
                           " CloseResult=" + closeResult +
                           " HasClosedSnapshot=" + hasClosedSnapshot +
@@ -119,13 +134,109 @@ namespace SpellFire.MemoryRobot.Cli
                     bool hasSnapshot = SessionFactory.TryGetSession(processId, out snapshot);
                     bool ok = firstOpen && closeResult && second.Session.IsOpen && hasSnapshot;
                     WriteLine((ok ? "OK" : "FAIL") +
-                              " close-then-reopen ProcessId=" + processId +
+                              " close-then-reopen TargetProcessId=" + processId +
                               " FirstOpen=" + firstOpen +
                               " CloseResult=" + closeResult +
                               " SecondOpen=" + second.Session.IsOpen +
                               " Snapshot=" + FormatSession(snapshot));
                     return ok ? 0 : 1;
                 }
+            }
+        }
+
+        private static int RunSnapshotAfterClose(int processId)
+        {
+            using (IMemoryRobot robot = SessionFactory.Open(processId))
+            {
+                bool closeResult = SessionFactory.CloseSession(processId);
+                MemorySessionSnapshot snapshot;
+                bool hasSnapshot = SessionFactory.TryGetSession(processId, out snapshot);
+                bool ok = closeResult && !hasSnapshot;
+                WriteLine((ok ? "OK" : "FAIL") +
+                          " snapshot-after-close TargetProcessId=" + processId +
+                          " CloseResult=" + closeResult +
+                          " HasSnapshot=" + hasSnapshot +
+                          " Snapshot=" + FormatSession(snapshot));
+                return ok ? 0 : 1;
+            }
+        }
+
+        private static int RunSessionCloseAll(int processId)
+        {
+            using (IMemoryRobot robot = SessionFactory.Open(processId))
+            {
+                MemorySessionSnapshot before;
+                bool hasBefore = SessionFactory.TryGetSession(processId, out before);
+                SessionFactory.ReleaseAll();
+                MemorySessionSnapshot after;
+                bool hasAfter = SessionFactory.TryGetSession(processId, out after);
+                bool ok = hasBefore && !hasAfter;
+                WriteLine((ok ? "OK" : "FAIL") +
+                          " session-close-all TargetProcessId=" + processId +
+                          " HasBefore=" + hasBefore +
+                          " HasAfter=" + hasAfter +
+                          " Before=" + FormatSession(before) +
+                          " After=" + FormatSession(after));
+                return ok ? 0 : 1;
+            }
+        }
+
+        private static int RunProcessExitAfterOpen()
+        {
+            System.Diagnostics.Process child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe",
+                Arguments = "/c exit 0",
+                CreateNoWindow = true,
+                UseShellExecute = false
+            });
+            if (child == null)
+            {
+                WriteLine("FAIL process-exit-after-open Reason=\"ChildProcessStartFailed\"");
+                return 1;
+            }
+
+            int childPid = child.Id;
+            using (IMemoryRobot robot = SessionFactory.Open(childPid))
+            {
+                bool opened = robot.Session.IsOpen;
+                child.WaitForExit(5000);
+                Thread.Sleep(100);
+                MemorySessionSnapshot beforeAcquire;
+                bool hasBeforeAcquire = SessionFactory.TryGetSession(childPid, out beforeAcquire);
+
+                bool acquireFailed = false;
+                string acquireException = string.Empty;
+                try
+                {
+                    using (IMemoryRobot ignored = SessionFactory.Open(childPid))
+                    {
+                    }
+                }
+                catch (Exception ex)
+                {
+                    acquireFailed = true;
+                    acquireException = ex.GetType().Name;
+                }
+
+                MemorySessionSnapshot afterAcquire;
+                bool hasAfterAcquire = SessionFactory.TryGetSession(childPid, out afterAcquire);
+                bool closeResult = SessionFactory.CloseSession(childPid);
+                MemorySessionSnapshot afterClose;
+                bool hasAfterClose = SessionFactory.TryGetSession(childPid, out afterClose);
+                bool ok = opened && child.HasExited && hasBeforeAcquire && beforeAcquire.HasExited && acquireFailed && !hasAfterAcquire && !hasAfterClose;
+                WriteLine((ok ? "OK" : "FAIL") +
+                          " process-exit-after-open ChildProcessId=" + childPid +
+                          " Opened=" + opened +
+                          " ChildExited=" + child.HasExited +
+                          " HasBeforeAcquire=" + hasBeforeAcquire +
+                          " BeforeAcquire=" + FormatSession(beforeAcquire) +
+                          " AcquireFailed=" + acquireFailed +
+                          " AcquireException=\"" + Escape(acquireException) + "\"" +
+                          " HasAfterAcquire=" + hasAfterAcquire +
+                          " CloseResult=" + closeResult +
+                          " HasAfterClose=" + hasAfterClose);
+                return ok ? 0 : 1;
             }
         }
 
@@ -137,7 +248,7 @@ namespace SpellFire.MemoryRobot.Cli
                 bool ok = modules.Count > 0;
                 ProcessModuleInfo first = modules.FirstOrDefault();
                 WriteLine((ok ? "OK" : "FAIL") +
-                          " module-snapshot ProcessId=" + processId +
+                          " module-snapshot TargetProcessId=" + processId +
                           " Count=" + modules.Count +
                           " First=" + FormatModule(first));
                 return ok ? 0 : 1;
@@ -150,7 +261,7 @@ namespace SpellFire.MemoryRobot.Cli
             {
                 bool ok = robot.Regions.TryQuery(IntPtr.Zero, out var region);
                 WriteLine((ok ? "OK" : "FAIL") +
-                          " memory-region ProcessId=" + processId +
+                          " memory-region TargetProcessId=" + processId +
                           " Region=" + FormatRegion(region));
                 return ok ? 0 : 1;
             }
@@ -168,7 +279,7 @@ namespace SpellFire.MemoryRobot.Cli
                     freed = address != IntPtr.Zero && robot.Allocator.Free(address);
                     bool ok = address != IntPtr.Zero && freed;
                     WriteLine((ok ? "OK" : "FAIL") +
-                              " remote-alloc-free ProcessId=" + processId +
+                              " remote-alloc-free TargetProcessId=" + processId +
                               " Address=0x" + address.ToInt64().ToString("X", CultureInfo.InvariantCulture) +
                               " Freed=" + freed);
                     return ok ? 0 : 1;
@@ -199,7 +310,7 @@ namespace SpellFire.MemoryRobot.Cli
                     freed = address != IntPtr.Zero && robot.Allocator.Free(address);
                     bool ok = address != IntPtr.Zero && write.Success && payloadMatches && freed;
                     WriteLine((ok ? "OK" : "FAIL") +
-                              " write-remote-allocation ProcessId=" + processId +
+                              " write-remote-allocation TargetProcessId=" + processId +
                               " Address=0x" + address.ToInt64().ToString("X", CultureInfo.InvariantCulture) +
                               " WriteSuccess=" + write.Success +
                               " BytesWritten=" + write.BytesWritten +
@@ -226,12 +337,90 @@ namespace SpellFire.MemoryRobot.Cli
                 MemoryReadResult result = robot.Reader.TryReadBytes(IntPtr.Zero, 4);
                 bool ok = !result.Success && result.RequestedBytes == 4;
                 WriteLine((ok ? "OK" : "FAIL") +
-                          " try-read-invalid ProcessId=" + processId +
+                          " try-read-invalid TargetProcessId=" + processId +
                           " Success=" + result.Success +
                           " RequestedBytes=" + result.RequestedBytes +
                           " BytesRead=" + result.BytesRead +
                           " Win32Error=" + result.Win32Error +
                           " ErrorMessage=\"" + Escape(result.ErrorMessage) + "\"");
+                return ok ? 0 : 1;
+            }
+        }
+
+        private static int RunRemoteThreadInvalidStart(int processId)
+        {
+            using (IMemoryRobot robot = SessionFactory.Open(processId))
+            {
+                try
+                {
+                    robot.Threads.Run(IntPtr.Zero, IntPtr.Zero, 1000);
+                    WriteLine("FAIL remote-thread-invalid-start TargetProcessId=" + processId + " Reason=\"UnexpectedSuccess\"");
+                    return 1;
+                }
+                catch (ArgumentException ex)
+                {
+                    WriteLine("OK remote-thread-invalid-start TargetProcessId=" + processId +
+                              " Exception=\"" + ex.GetType().Name + "\"" +
+                              " Message=\"" + Escape(ex.Message) + "\"");
+                    return 0;
+                }
+            }
+        }
+
+        private static int RunLoadLibraryMissingFile(int processId)
+        {
+            using (IMemoryRobot robot = SessionFactory.Open(processId))
+            {
+                string missingPath = System.IO.Path.Combine(
+                    System.IO.Path.GetTempPath(),
+                    "SpellFire.MemoryRobot.Missing." + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".dll");
+                try
+                {
+                    robot.Libraries.LoadLibrary(missingPath, 1000);
+                    WriteLine("FAIL load-library-missing-file TargetProcessId=" + processId + " Reason=\"UnexpectedSuccess\" Path=\"" + Escape(missingPath) + "\"");
+                    return 1;
+                }
+                catch (System.IO.FileNotFoundException ex)
+                {
+                    WriteLine("OK load-library-missing-file TargetProcessId=" + processId +
+                              " Exception=\"" + ex.GetType().Name + "\"" +
+                              " Path=\"" + Escape(missingPath) + "\"");
+                    return 0;
+                }
+            }
+        }
+
+        private static int RunSelfRemoteThreadGetCurrentProcessId()
+        {
+            int selfProcessId = System.Diagnostics.Process.GetCurrentProcess().Id;
+            using (IMemoryRobot robot = SessionFactory.Open(selfProcessId))
+            {
+                IntPtr kernel32Handle = robot.SystemLibraries.GetModuleHandle("kernel32.dll");
+                IntPtr procAddress = robot.SystemLibraries.GetProcAddress(kernel32Handle, "GetCurrentProcessId");
+
+                uint exitCode = robot.Threads.Run(procAddress, IntPtr.Zero, 5000);
+                bool ok = exitCode == unchecked((uint)selfProcessId);
+                WriteLine((ok ? "OK" : "FAIL") +
+                          " self-remote-thread-get-current-process-id SelfProcessId=" + selfProcessId +
+                          " ExitCode=" + exitCode +
+                          " Expected=" + selfProcessId);
+                return ok ? 0 : 1;
+            }
+        }
+
+        private static int RunSelfLoadLibraryKnownSystemDll()
+        {
+            int selfProcessId = System.Diagnostics.Process.GetCurrentProcess().Id;
+            string systemDirectory = Environment.SystemDirectory;
+            string dllPath = System.IO.Path.Combine(systemDirectory, "version.dll");
+            using (IMemoryRobot robot = SessionFactory.Open(selfProcessId))
+            {
+                int moduleHandle = robot.Libraries.LoadLibrary(dllPath, 5000);
+                bool ok = moduleHandle != 0;
+                WriteLine((ok ? "OK" : "FAIL") +
+                          " self-load-library-known-system-dll SelfProcessId=" + selfProcessId +
+                          " Path=\"" + Escape(dllPath) + "\"" +
+                          " ModuleHandle=0x" + moduleHandle.ToString("X", CultureInfo.InvariantCulture));
                 return ok ? 0 : 1;
             }
         }
@@ -287,7 +476,7 @@ namespace SpellFire.MemoryRobot.Cli
                 return "none";
             }
 
-            return "ProcessId=" + snapshot.ProcessId +
+            return "SnapshotProcessId=" + snapshot.ProcessId +
                    " ProcessName=\"" + Escape(snapshot.ProcessName) + "\"" +
                    " Handle=0x" + snapshot.Handle.ToInt64().ToString("X", CultureInfo.InvariantCulture) +
                    " IsOpen=" + snapshot.IsOpen +
@@ -333,7 +522,7 @@ namespace SpellFire.MemoryRobot.Cli
 
         private static void WriteUsage()
         {
-            WriteLine("Usage: SpellFire.MemoryRobot.Cli <probe|probe-expect|session-open-close|close-then-reopen|module-snapshot|memory-region|remote-alloc-free|write-remote-allocation|try-read-invalid> [pid] [expectedReason]");
+            WriteLine("Usage: SpellFire.MemoryRobot.Cli <probe|probe-expect|session-open-close|close-then-reopen|snapshot-after-close|session-close-all|process-exit-after-open|module-snapshot|memory-region|remote-alloc-free|write-remote-allocation|remote-thread-invalid-start|load-library-missing-file|self-remote-thread-get-current-process-id|self-load-library-known-system-dll|try-read-invalid> [pid] [expectedReason]");
         }
     }
 }
