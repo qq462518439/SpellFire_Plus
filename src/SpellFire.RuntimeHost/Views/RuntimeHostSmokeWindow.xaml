@@ -2,9 +2,9 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="SpellFire RuntimeHost 冒烟"
-        Width="1120"
+        Width="784"
         Height="600"
-        MinWidth="920"
+        MinWidth="544"
         MinHeight="460"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource PrimaryBackgroundBrush}">
@@ -79,11 +79,7 @@
 
         <WrapPanel Grid.Row="2" Margin="0,0,0,10">
             <Button Content="Attach" Margin="0,0,8,8" Style="{StaticResource PrimaryButtonStyle}" Click="BtnAttach_Click"/>
-            <Button Content="宿主快照" Margin="0,0,8,8" Style="{StaticResource GhostButtonStyle}" Click="BtnHostSnapshot_Click"/>
-            <Button Content="MemoryRobot" Margin="0,0,8,8" Style="{StaticResource GhostButtonStyle}" Click="BtnMemoryRobot_Click"/>
-            <Button Content="SpellFireHook" Margin="0,0,8,8" Style="{StaticResource GhostButtonStyle}" Click="BtnHook_Click"/>
-            <Button Content="运行全部冒烟" Margin="0,0,8,8" Style="{StaticResource GhostButtonStyle}" Click="BtnRunAll_Click"/>
-            <Button Content="复制日志" Margin="0,0,8,8" Style="{StaticResource GhostButtonStyle}" Click="BtnCopyLog_Click"/>
+            <Button Content="Lua冒烟" Margin="0,0,8,8" Style="{StaticResource GhostButtonStyle}" Click="BtnLuaSmoke_Click"/>
         </WrapPanel>
 
         <Border Grid.Row="3"

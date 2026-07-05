@@ -45,6 +45,17 @@ namespace SpellFire.RuntimeHost.Components
             return result;
         }
 
+        public HookCommandResult LuaSmoke(int timeoutMilliseconds)
+        {
+            HookCommandResult result = Execute(HookProtocol.Commands.LuaSmoke, timeoutMilliseconds);
+            result.Ready = result.Ready &&
+                           result.Result == HookProtocol.Results.LuaSmoke &&
+                           result.MainThreadBridgeReady &&
+                           result.LuaBridgeReady &&
+                           result.LuaSmokeExecuted;
+            return result;
+        }
+
         private HookCommandResult Execute(int command, int timeoutMilliseconds)
         {
             HookProtocolHeader header = ReadHeader();
@@ -81,6 +92,10 @@ namespace SpellFire.RuntimeHost.Components
                 PeSignature = accessor.ReadInt32(HookProtocol.Offsets.PeSignature),
                 Machine = accessor.ReadInt32(HookProtocol.Offsets.Machine),
                 SectionCount = accessor.ReadInt32(HookProtocol.Offsets.SectionCount),
+                MainThreadBridgeReady = accessor.ReadInt32(HookProtocol.Offsets.MainThreadBridgeReady) != 0,
+                LuaBridgeReady = accessor.ReadInt32(HookProtocol.Offsets.LuaBridgeReady) != 0,
+                LuaSmokeExecuted = accessor.ReadInt32(HookProtocol.Offsets.LuaSmokeExecuted) != 0,
+                LuaSmokeLastStatus = accessor.ReadInt32(HookProtocol.Offsets.LuaSmokeLastStatus),
                 Ready = header.IsCompatible && ack && status == HookProtocol.Status.Ok
             };
         }

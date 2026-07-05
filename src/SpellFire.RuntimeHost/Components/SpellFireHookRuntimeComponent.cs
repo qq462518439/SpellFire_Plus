@@ -358,6 +358,10 @@ namespace SpellFire.RuntimeHost.Components
                     detail.Append(" HookProtocolVersion=").Append(result.HookProtocolVersion);
                     detail.Append(" HookStartTick=").Append(result.HookStartTick);
                     detail.Append(" HeartbeatCount=").Append(result.HeartbeatCount);
+                    detail.Append(" MainThreadBridgeReady=").Append(result.MainThreadBridgeReady);
+                    detail.Append(" LuaBridgeReady=").Append(result.LuaBridgeReady);
+                    detail.Append(" LuaSmokeExecuted=").Append(result.LuaSmokeExecuted);
+                    detail.Append(" LuaSmokeLastStatus=0x").Append(result.LuaSmokeLastStatus.ToString("X"));
                     return new RuntimeComponentStatus
                     {
                         Name = Name,
@@ -430,6 +434,52 @@ namespace SpellFire.RuntimeHost.Components
             }
         }
 
+        public RuntimeComponentStatus LuaSmoke(int processId)
+        {
+            StringBuilder detail = new StringBuilder();
+            try
+            {
+                RuntimeComponentStatus status = GetStatus(processId);
+                detail.Append(" StatusReason=").Append(status.Reason);
+                detail.Append(" StatusReady=").Append(status.Ready);
+                detail.Append(" Script=JumpOrAscendStart+SPELLFIRE_LUA_OK");
+                if (!status.Ready)
+                {
+                    return new RuntimeComponentStatus
+                    {
+                        Name = Name,
+                        Ready = false,
+                        Reason = "LuaSmokeHookUnavailable",
+                        Detail = detail.ToString()
+                    };
+                }
+
+                using (HookCommandChannel channel = new HookCommandChannel(processId))
+                {
+                    HookCommandResult result = channel.LuaSmoke(7000);
+                    AppendCommandResult(detail, result);
+                    return new RuntimeComponentStatus
+                    {
+                        Name = Name,
+                        Ready = result.Ready,
+                        Reason = result.Ready ? "LuaSmokeExecuted" : "LuaSmokeFailed",
+                        Detail = detail.ToString()
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                detail.Append(" LuaSmokeError=").Append(ex.GetType().Name).Append(":").Append(ex.Message);
+                return new RuntimeComponentStatus
+                {
+                    Name = Name,
+                    Ready = false,
+                    Reason = "LuaSmokeFailed",
+                    Detail = detail.ToString()
+                };
+            }
+        }
+
         public void Cleanup(int processId)
         {
         }
@@ -444,6 +494,10 @@ namespace SpellFire.RuntimeHost.Components
             detail.Append(" Result=0x").Append(result.Result.ToString("X"));
             detail.Append(" PayloadLength=").Append(result.PayloadLength);
             detail.Append(" PingCount=").Append(result.PingCount);
+            detail.Append(" MainThreadBridgeReady=").Append(result.MainThreadBridgeReady);
+            detail.Append(" LuaBridgeReady=").Append(result.LuaBridgeReady);
+            detail.Append(" LuaSmokeExecuted=").Append(result.LuaSmokeExecuted);
+            detail.Append(" LuaSmokeLastStatus=0x").Append(result.LuaSmokeLastStatus.ToString("X"));
         }
 
         private static bool TryIsWow64(Process process, out bool isWow64)

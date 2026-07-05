@@ -13,20 +13,22 @@ namespace SpellFireHookProtocol
 
     constexpr DWORD BufferSize = 256;
     constexpr DWORD Magic = 0x53464850; // SFHP
-    constexpr DWORD Version = 1;
-    constexpr DWORD HeaderSize = 72;
+    constexpr DWORD Version = 2;
+    constexpr DWORD HeaderSize = 88;
 
     namespace Commands
     {
         constexpr LONG Ping = 1;
         constexpr LONG GetHookInfo = 2;
         constexpr LONG ReadSelfModule = 3;
+        constexpr LONG LuaSmoke = 4;
     }
 
     namespace Status
     {
         constexpr LONG Ok = 0x53464F4B; // SFOK
         constexpr LONG UnsupportedCommand = 0x53464E53; // SFNS
+        constexpr LONG Failed = 0x53464641; // SFFA
     }
 
     namespace Results
@@ -34,6 +36,7 @@ namespace SpellFireHookProtocol
         constexpr LONG Ping = 0x50494E47; // PING
         constexpr LONG Info = 0x494E464F; // INFO
         constexpr LONG PeRead = 0x50455244; // PERD
+        constexpr LONG LuaSmoke = 0x4C554153; // LUAS
     }
 
     struct CommandBuffer
@@ -56,5 +59,9 @@ namespace SpellFireHookProtocol
         volatile LONG PeSignature;
         volatile LONG Machine;
         volatile LONG SectionCount;
+        volatile LONG MainThreadBridgeReady;
+        volatile LONG LuaBridgeReady;
+        volatile LONG LuaSmokeExecuted;
+        volatile LONG LuaSmokeLastStatus;
     };
 }

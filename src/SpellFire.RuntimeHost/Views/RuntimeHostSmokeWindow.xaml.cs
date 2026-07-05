@@ -118,6 +118,22 @@ namespace SpellFire.RuntimeHost.Views
             });
         }
 
+        private void BtnLuaSmoke_Click(object sender, RoutedEventArgs e)
+        {
+            RunSmoke("lua-smoke", current =>
+            {
+                EnsureSession(current);
+                var concreteHook = GetHookComponent();
+                if (concreteHook == null)
+                {
+                    return "SpellFireHook unavailable";
+                }
+
+                RuntimeComponentStatus component = concreteHook.LuaSmoke(current);
+                return FormatComponent(component);
+            });
+        }
+
         private void BtnRunAll_Click(object sender, RoutedEventArgs e)
         {
             RunSmoke("run-all", current =>

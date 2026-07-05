@@ -4,19 +4,21 @@ namespace SpellFire.RuntimeHost.Components
     {
         public const int BufferSize = 256;
         public const int Magic = 0x53464850;
-        public const int Version = 1;
-        public const int HeaderSize = 72;
+        public const int Version = 2;
+        public const int HeaderSize = 88;
 
         public static class Commands
         {
             public const int Ping = 1;
             public const int GetHookInfo = 2;
             public const int ReadSelfModule = 3;
+            public const int LuaSmoke = 4;
         }
 
         public static class Status
         {
             public const int Ok = 0x53464F4B;
+            public const int Failed = 0x53464641;
         }
 
         public static class Results
@@ -24,6 +26,7 @@ namespace SpellFire.RuntimeHost.Components
             public const int Ping = 0x50494E47;
             public const int Info = 0x494E464F;
             public const int PeRead = 0x50455244;
+            public const int LuaSmoke = 0x4C554153;
         }
 
         public static class Offsets
@@ -46,6 +49,10 @@ namespace SpellFire.RuntimeHost.Components
             public const int PeSignature = 60;
             public const int Machine = 64;
             public const int SectionCount = 68;
+            public const int MainThreadBridgeReady = 72;
+            public const int LuaBridgeReady = 76;
+            public const int LuaSmokeExecuted = 80;
+            public const int LuaSmokeLastStatus = 84;
         }
     }
 
@@ -103,6 +110,14 @@ namespace SpellFire.RuntimeHost.Components
         public int Machine { get; set; }
 
         public int SectionCount { get; set; }
+
+        public bool MainThreadBridgeReady { get; set; }
+
+        public bool LuaBridgeReady { get; set; }
+
+        public bool LuaSmokeExecuted { get; set; }
+
+        public int LuaSmokeLastStatus { get; set; }
 
         public bool Ready { get; set; }
     }

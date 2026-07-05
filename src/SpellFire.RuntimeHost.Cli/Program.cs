@@ -72,6 +72,11 @@ namespace SpellFire.RuntimeHost.Cli
                     return RunReadSelfModule(host, processId);
                 }
 
+                if (string.Equals(command, "lua-smoke", StringComparison.OrdinalIgnoreCase))
+                {
+                    return RunLuaSmoke(host, processId);
+                }
+
                 Console.WriteLine("FAIL unknown-command Command=\"" + command + "\"");
                 return 2;
             }
@@ -189,6 +194,20 @@ namespace SpellFire.RuntimeHost.Cli
 
             RuntimeComponentStatus result = hook.ReadSelfModule(processId);
             Console.WriteLine("OK read-self-module " + FormatComponent(result));
+            return result.Ready ? 0 : 1;
+        }
+
+        private static int RunLuaSmoke(IRuntimeHost host, int processId)
+        {
+            SpellFireHookRuntimeComponent hook = GetHookComponent(host);
+            if (hook == null)
+            {
+                Console.WriteLine("FAIL lua-smoke Reason=\"SpellFireHookUnavailable\"");
+                return 1;
+            }
+
+            RuntimeComponentStatus result = hook.LuaSmoke(processId);
+            Console.WriteLine("OK lua-smoke " + FormatComponent(result));
             return result.Ready ? 0 : 1;
         }
 
