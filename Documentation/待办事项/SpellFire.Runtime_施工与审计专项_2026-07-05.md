@@ -22,6 +22,7 @@
 1. 对上提供统一合同
 2. 对下消费底层组件的诊断/能力合同
 3. 将底层结果转换成稳定快照模型
+4. 管理 Runtime 层显式连接/释放协议
 
 它当前不负责：
 
@@ -42,18 +43,22 @@
 8. `IRuntimeMemoryProbeService`
 9. `RuntimeMemoryProbeSnapshot`
 10. `RuntimeMemoryProbeService`
+11. `RuntimeConnectionSnapshot`
+12. `Connect / Disconnect / GetConnection`
 
 ## 当前边界
 
 `SpellFire.Runtime` 当前只做：
 
-1. attach 一个进程
-2. 返回一份宿主快照
-3. 通过 `ProbeMemory(processId)` 暴露 `SpellFire.MemoryRobot` 的只读诊断结果
+1. `Attach(processId)`：兼容旧的一次性快照
+2. `Connect(processId)`：建立 Runtime 层显式连接
+3. `Disconnect(processId)`：释放 Runtime 当前持有的 host session
+4. `GetConnection(processId)`：查询 Runtime 当前连接状态
+5. `ProbeMemory(processId)`：暴露 `SpellFire.MemoryRobot` 的只读诊断结果
 
 当前不做：
 
-1. 常驻 session 管理
+1. 业务级多角色/多账号调度
 2. Wow 语义服务编排
 3. 导航接线
 4. 插件接线
@@ -68,7 +73,7 @@
 
 不是成品，因为：
 
-1. 它现在只提供 attach 快照与 memory probe 快照
+1. 它现在只提供 attach 快照、memory probe 快照、连接/释放快照
 2. 还没有对象层、Lua 层、运动层等稳定上游服务
 3. 还没有形成主程序连接流程的最终切换门槛
 
@@ -76,9 +81,9 @@
 
 下一刀应做：
 
-1. 先固定 `ProbeMemory(processId)` 作为 Runtime 消费 `SpellFire.MemoryRobot` 的第一条稳定链路
-2. 再补 Runtime 层的长期连接/释放协议，但不把 MemoryRobot 的实现细节搬进 Runtime
-3. 等 Runtime 有明确消费方后，再决定是否新增对象层/Lua 层服务
+1. 固定 `Connect / Disconnect / GetConnection` 作为主程序未来连接流程的候选协议
+2. 给 Runtime 增加“只读连接状态审计”脚本或 CLI 命令，确认重复连接/重复释放/目标退出路径
+3. 等连接生命周期稳定后，再决定是否新增对象层/Lua 层服务
 
 不是：
 
