@@ -1,25 +1,72 @@
 param(
     [int]$ProcessId = 0,
     [switch]$SkipBuild,
-    [switch]$RequireFresh,
     [switch]$Shutdown
 )
 
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$vcvars = "C:\Program Files\Microsoft Visual Studio\2026\Community\VC\Auxiliary\Build\vcvars32.bat"
 $hookProject = Join-Path $repoRoot "src\SpellFire.Hook\SpellFire.Hook.vcxproj"
 $runtimeHostProject = Join-Path $repoRoot "src\SpellFire.RuntimeHost\SpellFire.RuntimeHost.csproj"
 $runtimeHostCliProject = Join-Path $repoRoot "src\SpellFire.RuntimeHost.Cli\SpellFire.RuntimeHost.Cli.csproj"
 $runtimeHostCliExe = Join-Path $repoRoot "src\SpellFire.RuntimeHost.Cli\bin\Debug\net48\SpellFire.RuntimeHost.Cli.exe"
 
-if (-not $SkipBuild) {
-    if (-not (Test-Path $vcvars)) {
-        throw "vcvars32.bat not found: $vcvars"
+function Resolve-MSBuildPath {
+    $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vswhere) {
+        $paths = & $vswhere -products * -requires Microsoft.Component.MSBuild -find "MSBuild\Current\Bin\MSBuild.exe"
+        foreach ($path in $paths) {
+            if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path $path) -and (Test-CppTargetsAvailable -MSBuildPath $path)) {
+                return $path
+            }
+        }
+
+        foreach ($path in $paths) {
+            if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path $path)) {
+                return $path
+            }
+        }
     }
 
-    cmd /c "call `"$vcvars`" && msbuild `"$hookProject`" /p:Configuration=Debug /p:Platform=Win32 /m /nologo /v:minimal"
+    $command = Get-Command msbuild.exe -ErrorAction SilentlyContinue
+    if ($null -ne $command -and (Test-Path $command.Source)) {
+        return $command.Source
+    }
+
+    $fallback = "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe"
+    if (Test-Path $fallback) {
+        return $fallback
+    }
+
+    return $null
+}
+
+function Test-CppTargetsAvailable {
+    param([string]$MSBuildPath)
+
+    if ([string]::IsNullOrWhiteSpace($MSBuildPath)) {
+        return $false
+    }
+
+    $vsRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $MSBuildPath)))
+    $props = Get-ChildItem (Join-Path $vsRoot "MSBuild\Microsoft\VC") -Recurse -Filter "Microsoft.Cpp.Default.props" -ErrorAction SilentlyContinue | Select-Object -First 1
+    return $null -ne $props
+}
+
+if (-not $SkipBuild) {
+    $msbuild = Resolve-MSBuildPath
+    if ([string]::IsNullOrWhiteSpace($msbuild)) {
+        Write-Output "FAIL runtimehost-smoke Reason=`"MSBuildUnavailable`""
+        exit 4
+    }
+
+    if (-not (Test-CppTargetsAvailable -MSBuildPath $msbuild)) {
+        Write-Output "FAIL runtimehost-smoke Reason=`"CppTargetsMissing`" MSBuild=`"$msbuild`" Hint=`"Install Visual Studio Desktop development with C++ workload, or run with -SkipBuild when SpellFire.Hook.dll already exists.`""
+        exit 4
+    }
+
+    & $msbuild $hookProject /p:Configuration=Debug /p:Platform=Win32 /m /nologo /v:minimal
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -63,8 +110,10 @@ $attachOutput = & $runtimeHostCliExe attach $ProcessId
 $attachOutput
 $attachExit = $LASTEXITCODE
 
-if ($RequireFresh -and ($attachOutput -match "HookLoadedButReadySignalMissing")) {
-    Write-Output "FAIL runtimehost-smoke pid=$ProcessId Reason=`"ExistingStaleHookPayload`""
+if ($attachOutput -match "HookLoadedButReadySignalMissing") {
+    Write-Output "START runtimehost-cleanup-after"
+    & $runtimeHostCliExe cleanup
+    Write-Output "FAIL runtimehost-smoke pid=$ProcessId Reason=`"ExistingStaleHookPayload`" Hint=`"The target process already contains SpellFire.Hook.dll but ready/heartbeat is not alive. Restart the target process before a full smoke run.`""
     exit 3
 }
 

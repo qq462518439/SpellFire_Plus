@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace SpellFire.MemoryRobot.Process
 {
@@ -55,6 +56,62 @@ namespace SpellFire.MemoryRobot.Process
             }
         }
 
+        public bool CloseSession(int processId)
+        {
+            lock (syncRoot)
+            {
+                SessionEntry entry;
+                if (!sessions.TryGetValue(processId, out entry))
+                {
+                    return false;
+                }
+
+                entry.Session.Dispose();
+                sessions.Remove(processId);
+                return true;
+            }
+        }
+
+        public IReadOnlyList<MemorySessionSnapshot> GetSessions()
+        {
+            lock (syncRoot)
+            {
+                return sessions
+                    .OrderBy(pair => pair.Key)
+                    .Select(pair => CreateSnapshot(pair.Value))
+                    .ToArray();
+            }
+        }
+
+        public bool TryGetSession(int processId, out MemorySessionSnapshot snapshot)
+        {
+            lock (syncRoot)
+            {
+                SessionEntry entry;
+                if (!sessions.TryGetValue(processId, out entry))
+                {
+                    snapshot = null;
+                    return false;
+                }
+
+                snapshot = CreateSnapshot(entry);
+                return true;
+            }
+        }
+
+        public void ReleaseAll()
+        {
+            lock (syncRoot)
+            {
+                foreach (SessionEntry entry in sessions.Values)
+                {
+                    entry.Session.Dispose();
+                }
+
+                sessions.Clear();
+            }
+        }
+
         private static bool HasExited(System.Diagnostics.Process process)
         {
             try
@@ -64,6 +121,32 @@ namespace SpellFire.MemoryRobot.Process
             catch
             {
                 return true;
+            }
+        }
+
+        private static MemorySessionSnapshot CreateSnapshot(SessionEntry entry)
+        {
+            MemorySession session = entry.Session;
+            return new MemorySessionSnapshot
+            {
+                ProcessId = session.ProcessId,
+                ProcessName = SafeProcessName(session.Process),
+                Handle = session.Handle,
+                IsOpen = session.IsOpen,
+                HasExited = HasExited(session.Process),
+                ReferenceCount = entry.RefCount
+            };
+        }
+
+        private static string SafeProcessName(System.Diagnostics.Process process)
+        {
+            try
+            {
+                return process.ProcessName;
+            }
+            catch
+            {
+                return string.Empty;
             }
         }
 

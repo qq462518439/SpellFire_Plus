@@ -2,14 +2,16 @@
 
 ## 当前结论
 
-`SpellFire.RuntimeHost` 不再走“第三方 runtime 像个组件”的旧试探口径，当前专项已经收缩到更干净的主线：
+`SpellFire.RuntimeHost` 当前不定义为正式宿主层，也不定义为业务运行时成品。
 
-1. `RuntimeHost` 只负责托管 **自家组件**
-2. 当前默认组件只有：
+当前主线收缩为：
+
+1. `RuntimeHost` 是测试壳 / smoke 壳。
+2. 当前默认被测组件只有：
    - `MemoryRobotRuntimeComponent`
    - `SpellFireHookRuntimeComponent`
-3. `RuntimeHost` 自己就是冒烟入口
-4. 退出时必须自动 cleanup
+3. `RuntimeHost.Cli + tools/runtimehost-smoke.ps1` 是当前唯一可按“成品”使用的自动验收工具链。
+4. `RuntimeHost` 退出时必须自动 cleanup。
 
 当前不能再做的事：
 
@@ -20,7 +22,7 @@
 
 一句话：
 
-`RuntimeHost` 当前专项不是“接第三方运行时”，而是“把 SpellFire 自己的运行时组件宿主做扎实”。
+`RuntimeHost` 当前专项不是“接第三方运行时”，也不是“正式多进程宿主”，而是“把 SpellFire 自己的运行时地基做成可重复验收的 smoke 工具链”。
 
 ## 阶段收口审计结论
 
@@ -28,15 +30,15 @@
 
 1. `SpellFire.MemoryRobot`：**成型地基**
 2. `SpellFire.Hook`：**成型地基**
-3. `SpellFire.RuntimeHost`：**成型地基**
-4. `RuntimeHost.Cli + tools/runtimehost-smoke.ps1`：**可信成品**
+3. `SpellFire.RuntimeHost`：**测试壳 / smoke 壳**
+4. `RuntimeHost.Cli + tools/runtimehost-smoke.ps1`：**当前可信成品**
 
-不能把 `RuntimeHost + Hook` 整体升级为“可信成品”的原因：
+不能把 `MemoryRobot / Hook / RuntimeHost` 单独升级为“业务成品”的原因：
 
 1. 还没有远程卸载，当前 payload 仍依赖目标进程生命周期自然释放
 2. `SpellFire.Hook` 只证明 ready、heartbeat、shutdown、command-ping、hook-info、read-self-module
 3. 还没有对象、Lua、移动、战斗、导航语义层消费
-4. `RuntimeHost` 还没有向 `WowRuntime` 输出稳定上下文
+4. `RuntimeHost` 当前只承担 smoke 壳职责，不应向 `WowRuntime` 输出正式宿主上下文
 5. 当前命令通道仍是固定共享内存槽，不是完整 RPC/消息框架
 
 可以认定为“可信成品”的部分：
@@ -47,7 +49,7 @@
 
 因此本专项当前的正确收口口径是：
 
-`RuntimeHost/Hook 已经形成可继续承载后续 runtime 能力的成型地基，但尚不是业务运行时成品。`
+`MemoryRobot/Hook 是可继续承载后续 runtime 能力的成型地基；RuntimeHost 只是测试壳；当前唯一成品是 RuntimeHost.Cli smoke 自动验收工具链。`
 
 ## 当前代码真实状态
 
@@ -59,14 +61,14 @@
 4. `MemoryRobotRuntimeComponent` 已接通
 5. `SpellFireHookRuntimeComponent` 已从空占位升级到“前置条件探测器”
 6. `RuntimeHost` 可直接执行最小冒烟测试
-7. `RuntimeHost` 退出时会自动 `Dispose` session 并调用组件 `Cleanup`
+7. `RuntimeHost` 退出时会自动 `Dispose` 测试会话并调用组件 `Cleanup`
 8. `SpellFireHookRuntimeComponent` 已不再依赖 `Well.dll / EasyHook` 旧资产检查，而改为基于 `SpellFire.MemoryRobot` 的 hook 地基检查
 9. `SpellFire.MemoryRobot` 已补出最小远程执行地基：
    - `IRemoteThreadRunner`
    - `IRemoteLibraryLoader`
    - `CreateRemoteThread + WaitForSingleObject + GetExitCodeThread`
    - `LoadLibraryW` 注入闭环
-10. `RuntimeHost` 的 `Attach` 已开始消费这套能力
+10. `RuntimeHost` 的 smoke attach 已开始消费这套能力
 11. `SpellFire.Hook.dll` 原生 Win32 payload 已建立
 12. `RuntimeHost` 构建后会把 `SpellFire.Hook.dll` 投放到自身输出目录
 13. payload 被加载时会设置 `Local\SpellFireHookReady_{pid}` ready 事件
@@ -141,16 +143,117 @@
 3. 还没有向 `WowRuntime` 提供语义层服务
 4. 尚未实现远程卸载/退出回收；当前策略是让 payload 随目标进程生命周期结束
 
+## 2026-07-05 接力验收记录
+
+本轮接力先不补 `cache` 命令，优先验证现有矩阵和 smoke 入口。
+
+已确认：
+
+1. `tools/memory-probe-matrix.ps1` 通过。
+2. `missing-process` 返回 `ProcessUnavailable`。
+3. `system-access` 返回 `AccessDenied`。
+4. `explorer-bitness` 返回 `TargetNot32Bit`。
+5. 托管项目可构建：
+   - `SpellFire.MemoryRobot`
+   - `SpellFire.RuntimeHost`
+   - `SpellFire.Runtime`
+   - `SpellFire.RuntimeHost.Cli`
+6. `SpellFire.RuntimeHost.Cli cleanup` 可执行并返回 OK。
+7. 无效 PID 下的 `preflight/status/command-ping` 均能返回可解释失败，没有卡死或异常崩溃。
+
+完整 `runtimehost-smoke` 尚未进入 attach 验收，当前阻塞点是本机 native C++ 构建环境：
+
+```text
+FAIL runtimehost-smoke Reason="CppTargetsMissing"
+```
+
+原因：
+
+1. 原脚本硬编码 `Visual Studio 2026 vcvars32.bat`，本机不存在。
+2. 本机可发现 VS18 MSBuild。
+3. 本机未发现 `Microsoft.Cpp.Default.props`。
+4. 当前没有现成 `SpellFire.Hook.dll` 产物，不能使用 `-SkipBuild` 跳过 native 构建。
+
+已修正：
+
+1. `tools/runtimehost-smoke.ps1` 不再硬编码 VS2026。
+2. 脚本会自动发现 MSBuild。
+3. 缺失 C++ targets 时输出 `CppTargetsMissing` 明确诊断。
+
+当前结论：
+
+```text
+session manager 没有破坏 memory probe 矩阵和非注入 CLI 路径；
+完整 attach/repeat/status/command/hook-info/read-self-module 仍需 C++ workload 或现成 Hook DLL 后再验收。
+```
+
+## 2026-07-05 接力继续验收记录
+
+已继续处理 native Hook 构建阻塞。
+
+新增确认：
+
+1. 本机存在 VS2019 C++ 工具链：
+   - `VC\Tools\MSVC\14.29.30133`
+   - `MSBuild\Microsoft\VC\v160\Microsoft.Cpp.Default.props`
+2. `SpellFire.Hook.vcxproj` 原配置使用 `PlatformToolset=v145`，本机不存在该工具集。
+3. 已将 `SpellFire.Hook.vcxproj` 的 Debug/Release `PlatformToolset` 调整为 `v142`。
+4. `tools/runtimehost-smoke.ps1` 已改为优先选择带 C++ targets 的 MSBuild 实例。
+
+完整 smoke 已通过：
+
+```text
+OK runtimehost-smoke pid=5192
+```
+
+覆盖阶段：
+
+1. native `SpellFire.Hook.dll` 构建成功。
+2. `SpellFire.RuntimeHost` 构建成功。
+3. `SpellFire.RuntimeHost.Cli` 构建成功。
+4. `memory-probe` 返回 `SessionOpened`。
+5. `preflight` 返回 `MemoryReadyForHook`。
+6. 首次 `attach` 返回 `HookReady`。
+7. 重复 `attach` 返回 `HookAlreadyReady`。
+8. `status` 返回 `HookServiceAlive`。
+9. `command-ping` 返回 `HookCommandPingOk`。
+10. `hook-info` 返回 `HookInfoOk`。
+11. `read-self-module` 返回 `HookSelfModuleReadOk`。
+12. `read-self-module` 验证：
+    - `DosSignature=0x5A4D`
+    - `PeSignature=0x4550`
+    - `Machine=0x14C`
+    - `SectionCount=9`
+
+Shutdown smoke 已通过：
+
+```text
+OK runtimehost-smoke pid=5192 -Shutdown
+```
+
+Shutdown 验收点：
+
+1. `shutdown` 返回 `HookShutdownRequested`。
+2. shutdown 后 `PostStatusReason=HookServiceUnavailable`。
+3. shutdown 后 `ReadySignal=False`。
+4. shutdown 后 `HeartbeatSignal=False`。
+
+本轮更新后的结论：
+
+```text
+session manager 未破坏现有矩阵和完整 smoke；
+MemoryRobot/Hook 当前恢复到可构建、可 attach、可重复 attach、可命令往返、可 shutdown 的成型地基状态；
+RuntimeHost 仍只按 smoke 测试壳使用。
+```
+
 ## 当前边界
 
 本专项当前只做：
-
-1. 多进程宿主实例
+1. 单目标 PID smoke 验证
 2. 组件状态探测
 3. 组件状态汇总
-4. 会话退出清理
+4. 测试会话退出清理
 5. 冒烟命令行入口
-
 本专项当前不做：
 
 1. 第三方 runtime 适配
@@ -224,7 +327,7 @@
 
 1. 还没有 session 复用策略
 2. 还没有把读写 API 扩成稳定公开面
-3. 还没有多进程长期运行压力证据
+3. 还没有长期运行压力证据
 
 ### `SpellFireHookRuntimeComponent`
 
@@ -291,7 +394,7 @@
 2. 还没有完整命令调度框架
 3. 还没有业务语义层命令
 4. 还没有长期驻留与异常恢复策略
-5. 还没有跨多进程并发压力验收
+5. 还没有并发/重复 attach 压力验收
 
 注意：
 
@@ -541,7 +644,7 @@ OK runtimehost-smoke pid=17404
 
 阶段状态：
 
-1. RuntimeHost 骨架：**成型地基**
+1. RuntimeHost 测试壳：**可用 smoke 壳**
 2. MemoryRobot 远程执行地基：**成型地基**
 3. Hook ready/status/command 地基：**成型地基**
 4. CLI smoke 自动验收：**可信成品**
@@ -569,7 +672,7 @@ tools\runtimehost-smoke.ps1 -ProcessId <pid> -Shutdown
 tools\memory-probe-matrix.ps1
 ```
 
-当前验收看四项：
+当前验收看九项：
 
 1. `memory-probe` 是否能输出底层 session/权限诊断
 2. 进程是否能 attach 到宿主 session
@@ -581,9 +684,82 @@ tools\memory-probe-matrix.ps1
 8. `read-self-module` 是否能只读验证 Hook 自身 PE 头
 9. `shutdown` 与 cleanup 是否稳定
 
+如果目标进程已经加载 `SpellFire.Hook.dll`，但 ready/heartbeat 不在线，`runtimehost-smoke.ps1` 必须直接失败为：
+
+```text
+ExistingStaleHookPayload
+```
+
+这类状态不允许继续跑 repeat attach/status/command-ping，因为它代表目标进程已是脏进程，完整 smoke 结果不再可信。
+
+## 2026-07-05 脏进程快失败与新进程复验
+
+本轮继续确认：
+
+1. 旧 Wow PID `5192` 已处于脏状态：
+   - 目标进程内已有 `SpellFire.Hook.dll`
+   - `ReadySignal=False`
+   - `HeartbeatSignal=False`
+   - `runtimehost-smoke.ps1` 现在会快速失败为 `ExistingStaleHookPayload`
+2. 结束旧 PID 后按同一路径 `D:\Games\BFWZ\Wow.exe` 启动新 Wow PID `1360`。
+3. 新 PID 完整 smoke 已通过：
+
+```text
+OK runtimehost-smoke pid=1360
+```
+
+覆盖结果：
+
+1. `memory-probe`：`SessionOpened`
+2. `preflight`：`MemoryReadyForHook`
+3. 首次 `attach`：`HookReady`
+4. 重复 `attach`：`HookAlreadyReady`
+5. `status`：`HookServiceAlive`
+6. `command-ping`：`HookCommandPingOk`
+7. `hook-info`：`HookInfoOk`
+8. `read-self-module`：`HookSelfModuleReadOk`
+9. `shutdown`：`HookShutdownRequested`
+
+结论：
+
+```text
+stale hook 检测有效；
+干净目标进程上的 HookReady/命令通道/自读模块/shutdown 闭环有效。
+```
+
+## 2026-07-05 MemoryRobot 生命周期第一刀
+
+本轮不再继续扩 `RuntimeHost` 测试壳，推进点切回 `SpellFire.MemoryRobot` 本体。
+
+已完成：
+
+1. 新增 `MemorySessionSnapshot`。
+2. `MemoryRobotSessionManager` 支持：
+   - `GetSessions()`
+   - `TryGetSession(processId, out snapshot)`
+   - `CloseSession(processId)`
+   - `ReleaseAll()`
+3. `IMemorySessionFactory` 暴露上述生命周期审计/释放能力。
+4. `MemoryRobotRuntimeComponent.Cleanup(processId)` 不再空实现，改为关闭指定 PID 的 MemoryRobot session。
+
+设计边界：
+
+1. `CloseSession(processId)` 只处理指定 PID，避免组件 cleanup 误伤其它目标。
+2. `ReleaseAll()` 只作为进程退出或全局兜底能力保留。
+3. 本轮不新增对象/Lua/移动语义层。
+
+验收：
+
+```text
+dotnet build SpellFire.MemoryRobot: OK
+dotnet build SpellFire.RuntimeHost.Cli: OK
+memory-probe-matrix: OK
+runtimehost-smoke pid=3296 -Shutdown: OK
+```
+
 ## 收尾规则
 
-满足以下条件前，不把 `RuntimeHost` 包装成可信成品：
+满足以下条件前，不把 `RuntimeHost.Cli + runtimehost-smoke.ps1` 之外的部分包装成可信成品：
 
 1. `SpellFireHook` 至少在真实 Wow 进程上完成一次 `HookReady`
 2. attach 成败已能被清楚归因
@@ -593,12 +769,13 @@ tools\memory-probe-matrix.ps1
 本轮审计后的新口径：
 
 1. `RuntimeHost.Cli + runtimehost-smoke.ps1` 可以按“可信成品”使用
-2. `RuntimeHost + MemoryRobot + Hook` 只能按“成型地基”使用
-3. 后续主线可以基于它继续施工，但不允许对外宣称“运行时成品已完成”
+2. `MemoryRobot + Hook` 只能按“成型地基”使用
+3. `RuntimeHost` 只能按“测试壳 / smoke 壳”使用
+4. 后续主线可以基于这些地基继续施工，但不允许对外宣称“运行时成品已完成”
 
 在此之前，`RuntimeHost` 的状态口径固定为：
 
-1. **成型地基**
+1. **测试壳 / smoke 壳**
 
 ## 下一步
 
@@ -608,7 +785,7 @@ tools\memory-probe-matrix.ps1
 2. 下一阶段不继续扩 Hook 命令
 3. `MemoryRobot` 的 session/权限诊断第一刀已完成
 4. `MemoryRobot` 的基础失败矩阵已完成
-5. 下一主线应转向 `SpellFire.Runtime` 如何消费这套成型地基，或继续补 `MemoryRobot` 多进程 session 管理
+5. 下一主线应转向 `SpellFire.Runtime` 如何消费 `MemoryRobot + Hook` 这套成型地基
 
 不是：
 

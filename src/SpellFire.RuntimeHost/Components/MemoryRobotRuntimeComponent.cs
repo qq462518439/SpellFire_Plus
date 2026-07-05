@@ -59,6 +59,7 @@ namespace SpellFire.RuntimeHost.Components
 
         public void Cleanup(int processId)
         {
+            sessionFactory.CloseSession(processId);
         }
 
         private static string FormatProbe(MemorySessionProbeResult probe)
