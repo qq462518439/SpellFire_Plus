@@ -236,3 +236,28 @@ memoryrobot-smoke:
   AfterDisconnect={ReadyToConnect=True Decision="ReadyToConnect"}
 memoryrobot-failure-matrix: OK
 ```
+
+## 2026-07-06 Runtime Evaluate 失败矩阵第一刀
+
+本轮新增固定失败矩阵：
+
+1. `SpellFire.MemoryRobot.Cli runtime-evaluate-expect`
+2. `tools/memoryrobot-failure-matrix.ps1` 同时验证底层 `probe-expect` 与 Runtime `Evaluate.Decision`
+
+覆盖路径：
+
+1. 缺失进程：`Decision="MemoryNotReady:ProcessUnavailable"`
+2. 权限拒绝：`Decision="MemoryNotReady:AccessDenied"`
+3. 64 位目标：`Decision="MemoryNotReady:TargetNot32Bit"`
+
+本轮验收结果：
+
+```text
+dotnet build .\src\SpellFire.Runtime\SpellFire.Runtime.csproj -c Debug: OK, 0 warnings, 0 errors
+dotnet build .\src\SpellFire.MemoryRobot.Cli\SpellFire.MemoryRobot.Cli.csproj -c Debug: OK, 0 warnings, 0 errors
+memoryrobot-smoke: OK
+memoryrobot-failure-matrix:
+  OK runtime-evaluate-failure-case Name=missing-process Decision=MemoryNotReady:ProcessUnavailable
+  OK runtime-evaluate-failure-case Name=system-access Decision=MemoryNotReady:AccessDenied
+  OK runtime-evaluate-failure-case Name=explorer-bitness Decision=MemoryNotReady:TargetNot32Bit
+```
