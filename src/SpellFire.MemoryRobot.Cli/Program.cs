@@ -43,8 +43,6 @@ namespace SpellFire.MemoryRobot.Cli
                         return RunRuntimeEvaluateExpect(processId, args);
                     case "runtime-host-adapter":
                         return RunRuntimeHostAdapter(processId);
-                    case "runtime-host-adapter-expect":
-                        return RunRuntimeHostAdapterExpect(processId, args);
                     case "runtime-connect-disconnect":
                         return RunRuntimeConnectDisconnect(processId);
                     case "runtime-lifecycle-audit":
@@ -191,31 +189,6 @@ namespace SpellFire.MemoryRobot.Cli
                       " Status=" + FormatRuntimeConnection(status) +
                       " Detached=" + FormatRuntimeConnection(detached) +
                       " AfterDetach=" + FormatRuntimeConnection(afterDetach));
-            return ok ? 0 : 1;
-        }
-
-        private static int RunRuntimeHostAdapterExpect(int processId, string[] args)
-        {
-            string expectedDecision = args.Length >= 3 ? args[2] : string.Empty;
-            if (string.IsNullOrWhiteSpace(expectedDecision))
-            {
-                WriteLine("FAIL runtime-host-adapter-expect TargetProcessId=" + processId + " Reason=\"MissingExpectedDecision\"");
-                return 2;
-            }
-
-            var adapter = RuntimeCompositionRoot.CreateDefaultHostAdapter();
-            RuntimeHostAttachSnapshot attached = adapter.Attach(processId);
-            RuntimeConnectionSnapshot status = adapter.GetConnection(processId);
-            bool ok = !attached.Accepted &&
-                      string.Equals(attached.Decision, expectedDecision, StringComparison.Ordinal) &&
-                      !status.SessionExists &&
-                      string.Equals(status.Reason, "SessionNotFound", StringComparison.Ordinal);
-
-            WriteLine((ok ? "OK" : "FAIL") +
-                      " runtime-host-adapter-expect TargetProcessId=" + processId +
-                      " ExpectedDecision=\"" + Escape(expectedDecision) + "\"" +
-                      " Attached=" + FormatRuntimeHostAttach(attached) +
-                      " Status=" + FormatRuntimeConnection(status));
             return ok ? 0 : 1;
         }
 
@@ -801,7 +774,7 @@ namespace SpellFire.MemoryRobot.Cli
 
         private static void WriteUsage()
         {
-            WriteLine("Usage: SpellFire.MemoryRobot.Cli <probe|runtime-probe|runtime-evaluate|runtime-evaluate-expect|runtime-host-adapter|runtime-host-adapter-expect|runtime-connect-disconnect|runtime-lifecycle-audit|probe-expect|session-open-close|close-then-reopen|snapshot-after-close|session-close-all|process-exit-after-open|module-snapshot|memory-region|remote-alloc-free|write-remote-allocation|remote-thread-invalid-start|load-library-missing-file|self-remote-thread-get-current-process-id|self-load-library-known-system-dll|try-read-invalid> [pid] [expectedReason]");
+            WriteLine("Usage: SpellFire.MemoryRobot.Cli <probe|runtime-probe|runtime-evaluate|runtime-evaluate-expect|runtime-host-adapter|runtime-connect-disconnect|runtime-lifecycle-audit|probe-expect|session-open-close|close-then-reopen|snapshot-after-close|session-close-all|process-exit-after-open|module-snapshot|memory-region|remote-alloc-free|write-remote-allocation|remote-thread-invalid-start|load-library-missing-file|self-remote-thread-get-current-process-id|self-load-library-known-system-dll|try-read-invalid> [pid] [expectedReason]");
         }
     }
 }
