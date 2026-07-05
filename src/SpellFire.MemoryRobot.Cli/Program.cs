@@ -38,8 +38,6 @@ namespace SpellFire.MemoryRobot.Cli
                         return RunRuntimeProbe(processId);
                     case "runtime-evaluate":
                         return RunRuntimeEvaluate(processId);
-                    case "runtime-evaluate-expect":
-                        return RunRuntimeEvaluateExpect(processId, args);
                     case "runtime-connect-disconnect":
                         return RunRuntimeConnectDisconnect(processId);
                     case "runtime-lifecycle-audit":
@@ -138,26 +136,6 @@ namespace SpellFire.MemoryRobot.Cli
                       " AfterConnect=" + FormatRuntimeEvaluation(afterConnect) +
                       " Disconnected=" + FormatRuntimeConnection(disconnected) +
                       " AfterDisconnect=" + FormatRuntimeEvaluation(afterDisconnect));
-            return ok ? 0 : 1;
-        }
-
-        private static int RunRuntimeEvaluateExpect(int processId, string[] args)
-        {
-            string expectedDecision = args.Length >= 3 ? args[2] : string.Empty;
-            if (string.IsNullOrWhiteSpace(expectedDecision))
-            {
-                WriteLine("FAIL runtime-evaluate-expect TargetProcessId=" + processId + " Reason=\"MissingExpectedDecision\"");
-                return 2;
-            }
-
-            var facade = new RuntimeFacade();
-            RuntimeEvaluationSnapshot evaluation = facade.Evaluate(processId);
-            bool ok = string.Equals(evaluation.Decision, expectedDecision, StringComparison.Ordinal);
-            WriteLine((ok ? "OK" : "FAIL") +
-                      " runtime-evaluate-expect TargetProcessId=" + processId +
-                      " ExpectedDecision=\"" + Escape(expectedDecision) + "\"" +
-                      " ActualDecision=\"" + Escape(evaluation.Decision) + "\"" +
-                      " Evaluation=" + FormatRuntimeEvaluation(evaluation));
             return ok ? 0 : 1;
         }
 
@@ -729,7 +707,7 @@ namespace SpellFire.MemoryRobot.Cli
 
         private static void WriteUsage()
         {
-            WriteLine("Usage: SpellFire.MemoryRobot.Cli <probe|runtime-probe|runtime-evaluate|runtime-evaluate-expect|runtime-connect-disconnect|runtime-lifecycle-audit|probe-expect|session-open-close|close-then-reopen|snapshot-after-close|session-close-all|process-exit-after-open|module-snapshot|memory-region|remote-alloc-free|write-remote-allocation|remote-thread-invalid-start|load-library-missing-file|self-remote-thread-get-current-process-id|self-load-library-known-system-dll|try-read-invalid> [pid] [expectedReason]");
+            WriteLine("Usage: SpellFire.MemoryRobot.Cli <probe|runtime-probe|runtime-evaluate|runtime-connect-disconnect|runtime-lifecycle-audit|probe-expect|session-open-close|close-then-reopen|snapshot-after-close|session-close-all|process-exit-after-open|module-snapshot|memory-region|remote-alloc-free|write-remote-allocation|remote-thread-invalid-start|load-library-missing-file|self-remote-thread-get-current-process-id|self-load-library-known-system-dll|try-read-invalid> [pid] [expectedReason]");
         }
     }
 }
