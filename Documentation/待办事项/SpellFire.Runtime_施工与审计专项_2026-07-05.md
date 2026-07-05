@@ -160,6 +160,31 @@ memoryrobot-smoke:
 memoryrobot-failure-matrix: OK
 ```
 
+## 2026-07-06 Host Adapter 拒绝路径第一刀
+
+本轮新增固定失败矩阵：
+
+1. `SpellFire.MemoryRobot.Cli runtime-host-adapter-expect`
+2. `tools/memoryrobot-failure-matrix.ps1` 验证 host adapter 拒绝路径
+
+覆盖路径：
+
+1. 缺失进程：`Accepted=False`，`Decision="MemoryNotReady:ProcessUnavailable"`，连接状态保持 `SessionNotFound`
+2. 权限拒绝：`Accepted=False`，`Decision="MemoryNotReady:AccessDenied"`，连接状态保持 `SessionNotFound`
+3. 64 位目标：`Accepted=False`，`Decision="MemoryNotReady:TargetNot32Bit"`，连接状态保持 `SessionNotFound`
+
+本轮验收结果：
+
+```text
+dotnet build .\src\SpellFire.Runtime\SpellFire.Runtime.csproj -c Debug: OK, 0 warnings, 0 errors
+dotnet build .\src\SpellFire.MemoryRobot.Cli\SpellFire.MemoryRobot.Cli.csproj -c Debug: OK, 0 warnings, 0 errors
+memoryrobot-smoke: OK
+memoryrobot-failure-matrix:
+  OK runtime-host-adapter-failure-case Name=missing-process Decision=MemoryNotReady:ProcessUnavailable
+  OK runtime-host-adapter-failure-case Name=system-access Decision=MemoryNotReady:AccessDenied
+  OK runtime-host-adapter-failure-case Name=explorer-bitness Decision=MemoryNotReady:TargetNot32Bit
+```
+
 ## 2026-07-05 Runtime 消费 MemoryRobot 第一刀
 
 本轮新增的是诊断消费链，不是主流程切换：
