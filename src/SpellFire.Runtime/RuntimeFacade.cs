@@ -30,21 +30,6 @@ namespace SpellFire.Runtime
             return sessionService.Attach(processId);
         }
 
-        public RuntimeConnectionSnapshot Connect(int processId)
-        {
-            return sessionService.Connect(processId);
-        }
-
-        public RuntimeConnectionSnapshot Disconnect(int processId)
-        {
-            return sessionService.Disconnect(processId);
-        }
-
-        public RuntimeConnectionSnapshot GetConnection(int processId)
-        {
-            return sessionService.GetConnection(processId);
-        }
-
         public RuntimeMemoryProbeSnapshot ProbeMemory(int processId)
         {
             return memoryProbeService.Probe(processId);

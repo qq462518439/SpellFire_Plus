@@ -22,7 +22,6 @@
 1. 对上提供统一合同
 2. 对下消费底层组件的诊断/能力合同
 3. 将底层结果转换成稳定快照模型
-4. 管理 Runtime 层显式连接/释放协议
 
 它当前不负责：
 
@@ -43,18 +42,13 @@
 8. `IRuntimeMemoryProbeService`
 9. `RuntimeMemoryProbeSnapshot`
 10. `RuntimeMemoryProbeService`
-11. `RuntimeConnectionSnapshot`
-12. `Connect / Disconnect / GetConnection`
 
 ## 当前边界
 
 `SpellFire.Runtime` 当前只做：
 
 1. `Attach(processId)`：兼容旧的一次性快照
-2. `Connect(processId)`：建立 Runtime 层显式连接
-3. `Disconnect(processId)`：释放 Runtime 当前持有的 host session
-4. `GetConnection(processId)`：查询 Runtime 当前连接状态
-5. `ProbeMemory(processId)`：暴露 `SpellFire.MemoryRobot` 的只读诊断结果
+2. `ProbeMemory(processId)`：暴露 `SpellFire.MemoryRobot` 的只读诊断结果
 
 当前不做：
 
@@ -73,7 +67,7 @@
 
 不是成品，因为：
 
-1. 它现在只提供 attach 快照、memory probe 快照、连接/释放快照
+1. 它现在只提供 attach 快照、memory probe 快照
 2. 还没有对象层、Lua 层、运动层等稳定上游服务
 3. 还没有形成主程序连接流程的最终切换门槛
 
@@ -81,9 +75,9 @@
 
 下一刀应做：
 
-1. 固定 `Connect / Disconnect / GetConnection` 作为主程序未来连接流程的候选协议
-2. 给 Runtime 增加“只读连接状态审计”脚本或 CLI 命令，确认重复连接/重复释放/目标退出路径
-3. 等连接生命周期稳定后，再决定是否新增对象层/Lua 层服务
+1. 保持 `Attach` 与 `ProbeMemory` 的薄门面边界
+2. 继续用 CLI/smoke 证明底层能力
+3. 等对象层/Lua/运动有真实能力后，再决定是否新增更高层 Runtime 服务
 
 不是：
 
@@ -125,76 +119,5 @@ powershell -ExecutionPolicy Bypass -File .\tools\memoryrobot-failure-matrix.ps1 
 dotnet build .\src\SpellFire.Runtime\SpellFire.Runtime.csproj -c Debug: OK, 0 warnings, 0 errors
 dotnet build .\src\SpellFire.MemoryRobot.Cli\SpellFire.MemoryRobot.Cli.csproj -c Debug: OK, 0 warnings, 0 errors
 memoryrobot-smoke: OK, included OK runtime-probe TargetProcessId=11632 Ready=True Reason="SessionOpened"
-memoryrobot-failure-matrix: OK
-```
-
-## 2026-07-05 Runtime 连接/释放协议第一刀
-
-本轮新增的是 Runtime 层显式生命周期协议，不改变底层实现职责：
-
-1. `IRuntimeFacade.Connect(int processId)`
-2. `IRuntimeFacade.Disconnect(int processId)`
-3. `IRuntimeFacade.GetConnection(int processId)`
-4. `IRuntimeSessionService.Connect(int processId)`
-5. `IRuntimeSessionService.Disconnect(int processId)`
-6. `IRuntimeSessionService.GetConnection(int processId)`
-7. `RuntimeConnectionSnapshot`
-8. `SpellFire.MemoryRobot.Cli runtime-connect-disconnect`
-
-边界：
-
-1. `Attach(processId)` 保持一次性快照兼容。
-2. `Connect(processId)` 表达长期连接意图，底层会话由 `RuntimeHost` 持有。
-3. `Disconnect(processId)` 只负责释放 Runtime 当前持有的 host session。
-4. 本刀不新增对象层、Lua 层、运动层。
-5. 本刀不改变 `SpellFire.MemoryRobot` 本体职责。
-6. 本刀不让 Runtime 接管 HookReady 策略。
-
-验收标准：
-
-```text
-runtime-connect-disconnect:
-  Connect 后 Connected=True, SessionExists=True, SessionDisposed=False
-  GetConnection 后 Connected=True
-  Disconnect 后 Disconnected=True, SessionDisposed=True
-  Disconnect 后再次 GetConnection 返回 SessionNotFound
-```
-
-本轮验收结果：
-
-```text
-dotnet build .\src\SpellFire.Runtime\SpellFire.Runtime.csproj -c Debug: OK, 0 warnings, 0 errors
-dotnet build .\src\SpellFire.MemoryRobot.Cli\SpellFire.MemoryRobot.Cli.csproj -c Debug: OK, 0 warnings, 0 errors
-memoryrobot-smoke:
-  OK runtime-connect-disconnect
-  Connected={Connected=True Disconnected=False HostState="Ready" SessionExists=True SessionDisposed=False}
-  Disconnected={Connected=False Disconnected=True HostState="Detached" SessionExists=True SessionDisposed=True}
-  StatusAfterDisconnect={Connected=False Disconnected=False HostState="Detached" SessionExists=False Reason="SessionNotFound"}
-memoryrobot-failure-matrix: OK
-```
-
-## 2026-07-06 Runtime 生命周期审计第一刀
-
-本轮新增固定审计命令：
-
-1. `SpellFire.MemoryRobot.Cli runtime-lifecycle-audit`
-2. `tools/memoryrobot-smoke.ps1` 纳入 `runtime-lifecycle-audit`
-
-覆盖路径：
-
-1. 重复 `Connect(processId)`：应复用现有连接并保持 `Connected=True`
-2. 重复 `Disconnect(processId)`：第一次释放，第二次返回 `SessionNotFound`
-3. 目标进程退出后 `Disconnect(processId)`：应完成清理，之后 `GetConnection(processId)` 返回 `SessionNotFound`
-
-本轮验收结果：
-
-```text
-dotnet build .\src\SpellFire.Runtime\SpellFire.Runtime.csproj -c Debug: OK, 0 warnings, 0 errors
-dotnet build .\src\SpellFire.MemoryRobot.Cli\SpellFire.MemoryRobot.Cli.csproj -c Debug: OK, 0 warnings, 0 errors
-memoryrobot-smoke:
-  OK runtime-lifecycle-audit
-  RepeatedConnectOk=True
-  RepeatedDisconnectOk=True
-  TargetExitOk=True
 memoryrobot-failure-matrix: OK
 ```
