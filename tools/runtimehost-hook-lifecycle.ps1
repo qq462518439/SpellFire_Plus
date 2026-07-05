@@ -66,6 +66,38 @@ function Test-Output {
     return $true
 }
 
+function Reset-NamedEvent {
+    param(
+        [string]$Name
+    )
+
+    $eventHandle = [System.Threading.EventWaitHandle]::OpenExisting($Name)
+    try {
+        $null = $eventHandle.Reset()
+    }
+    finally {
+        $eventHandle.Dispose()
+    }
+}
+
+function Try-Set-NamedEvent {
+    param(
+        [string]$Name
+    )
+
+    try {
+        $eventHandle = [System.Threading.EventWaitHandle]::OpenExisting($Name)
+        try {
+            $null = $eventHandle.Set()
+        }
+        finally {
+            $eventHandle.Dispose()
+        }
+    }
+    catch {
+    }
+}
+
 if (-not $SkipBuild) {
     $msbuild = Resolve-MSBuildPath
     if ([string]::IsNullOrWhiteSpace($msbuild)) {
@@ -109,6 +141,33 @@ Invoke-Cli -Command hook-info -TargetProcessId $ProcessId
 $hookInfo = $script:lastCliResult
 Invoke-Cli -Command read-self-module -TargetProcessId $ProcessId
 $readSelfModule = $script:lastCliResult
+
+$readyEventName = "Local\SpellFireHookReady_$ProcessId"
+$heartbeatEventName = "Local\SpellFireHookHeartbeat_$ProcessId"
+
+Reset-NamedEvent -Name $readyEventName
+Invoke-Cli -Command preflight -TargetProcessId $ProcessId
+$readyMissingPreflight = $script:lastCliResult
+Invoke-Cli -Command attach -TargetProcessId $ProcessId
+$readyMissingAttach = $script:lastCliResult
+Invoke-Cli -Command status -TargetProcessId $ProcessId
+$readyMissingStatus = $script:lastCliResult
+Invoke-Cli -Command lua-smoke -TargetProcessId $ProcessId
+$readyMissingLua = $script:lastCliResult
+
+Reset-NamedEvent -Name $heartbeatEventName
+Invoke-Cli -Command preflight -TargetProcessId $ProcessId
+$heartbeatMissingPreflight = $script:lastCliResult
+Reset-NamedEvent -Name $heartbeatEventName
+Invoke-Cli -Command attach -TargetProcessId $ProcessId
+$heartbeatMissingAttach = $script:lastCliResult
+Reset-NamedEvent -Name $heartbeatEventName
+Invoke-Cli -Command lua-smoke -TargetProcessId $ProcessId
+$heartbeatMissingLua = $script:lastCliResult
+
+Try-Set-NamedEvent -Name $readyEventName
+Try-Set-NamedEvent -Name $heartbeatEventName
+
 Invoke-Cli -Command shutdown -TargetProcessId $ProcessId
 $shutdown = $script:lastCliResult
 Invoke-Cli -Command status -TargetProcessId $ProcessId
@@ -123,6 +182,13 @@ $ok = $ok -and (Test-Output -Result $status -Patterns @("HookServiceAlive", "Rea
 $ok = $ok -and (Test-Output -Result $commandPing -Patterns @("HookCommandPingOk", "Ack=True", "Magic=0x53464850", "HeaderSize=88", "Status=0x53464F4B", "Result=0x50494E47"))
 $ok = $ok -and (Test-Output -Result $hookInfo -Patterns @("HookInfoOk", "Ack=True", "Magic=0x53464850", "HeaderSize=88", "Status=0x53464F4B", "Result=0x494E464F", "HookProcessId=$ProcessId", "HookProtocolVersion=2"))
 $ok = $ok -and (Test-Output -Result $readSelfModule -Patterns @("HookSelfModuleReadOk", "Ack=True", "Magic=0x53464850", "HeaderSize=88", "Status=0x53464F4B", "Result=0x50455244", "DosSignature=0x5A4D", "PeSignature=0x4550", "Machine=0x14C", "SectionCount=[1-9][0-9]*"))
+$ok = $ok -and $readyMissingPreflight.ExitCode -ne 0 -and ($readyMissingPreflight.Output -match "SafeBoundary_DirtyRecoverable_ReadyMissing")
+$ok = $ok -and (Test-Output -Result $readyMissingAttach -Patterns @("HookReady", "Ready=True", "StaleUnloadAttempted=True", "StaleUnloadResult=True", "StaleModuleStillLoaded=False"))
+$ok = $ok -and (Test-Output -Result $readyMissingStatus -Patterns @("HookServiceAlive", "Ready=True", "ReadySignal=True", "HeartbeatSignal=True"))
+$ok = $ok -and (Test-Output -Result $readyMissingLua -Patterns @("LuaSmokeExecuted", "Ready=True", "MainThreadBridgeReady=True", "LuaBridgeReady=True", "LuaSmokeExecuted=True"))
+$ok = $ok -and $heartbeatMissingPreflight.ExitCode -ne 0 -and ($heartbeatMissingPreflight.Output -match "SafeBoundary_DirtyRefused_HeartbeatMissing")
+$ok = $ok -and $heartbeatMissingAttach.ExitCode -ne 0 -and ($heartbeatMissingAttach.Output -match "SafeBoundary_DirtyRefused_HeartbeatMissing")
+$ok = $ok -and $heartbeatMissingLua.ExitCode -ne 0 -and ($heartbeatMissingLua.Output -match "SafeBoundary_DirtyRefused_HeartbeatMissing")
 $ok = $ok -and (Test-Output -Result $shutdown -Patterns @("HookShutdownRequested", "Ready=True"))
 $ok = $ok -and $postStatus.ExitCode -ne 0 -and $postStatus.Output -match "HookServiceUnavailable"
 $ok = $ok -and $cleanupBefore.ExitCode -eq 0 -and $cleanupAfter.ExitCode -eq 0
@@ -132,5 +198,5 @@ if ($ok) {
     exit 0
 }
 
-Write-Output "FAIL hook-lifecycle pid=$ProcessId AttachExit=$($attach.ExitCode) RepeatAttachExit=$($repeatAttach.ExitCode) StatusExit=$($status.ExitCode) CommandPingExit=$($commandPing.ExitCode) HookInfoExit=$($hookInfo.ExitCode) ReadSelfModuleExit=$($readSelfModule.ExitCode) ShutdownExit=$($shutdown.ExitCode) PostStatusExit=$($postStatus.ExitCode)"
+Write-Output "FAIL hook-lifecycle pid=$ProcessId AttachExit=$($attach.ExitCode) RepeatAttachExit=$($repeatAttach.ExitCode) StatusExit=$($status.ExitCode) CommandPingExit=$($commandPing.ExitCode) HookInfoExit=$($hookInfo.ExitCode) ReadSelfModuleExit=$($readSelfModule.ExitCode) ReadyMissingPreflightExit=$($readyMissingPreflight.ExitCode) ReadyMissingAttachExit=$($readyMissingAttach.ExitCode) ReadyMissingStatusExit=$($readyMissingStatus.ExitCode) ReadyMissingLuaExit=$($readyMissingLua.ExitCode) HeartbeatMissingPreflightExit=$($heartbeatMissingPreflight.ExitCode) HeartbeatMissingAttachExit=$($heartbeatMissingAttach.ExitCode) HeartbeatMissingLuaExit=$($heartbeatMissingLua.ExitCode) ShutdownExit=$($shutdown.ExitCode) PostStatusExit=$($postStatus.ExitCode)"
 exit 1

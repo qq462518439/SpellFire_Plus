@@ -16,15 +16,19 @@ namespace SpellFire.MemoryRobot.Process
 
         public IReadOnlyList<ProcessModuleInfo> GetModules()
         {
-            return process.Modules.Cast<System.Diagnostics.ProcessModule>()
-                .Select(module => new ProcessModuleInfo
-                {
-                    Name = module.ModuleName,
-                    FileName = module.FileName,
-                    BaseAddress = module.BaseAddress,
-                    ModuleMemorySize = module.ModuleMemorySize
-                })
-                .ToArray();
+            using (var freshProcess = System.Diagnostics.Process.GetProcessById(process.Id))
+            {
+                freshProcess.Refresh();
+                return freshProcess.Modules.Cast<System.Diagnostics.ProcessModule>()
+                    .Select(module => new ProcessModuleInfo
+                    {
+                        Name = module.ModuleName,
+                        FileName = module.FileName,
+                        BaseAddress = module.BaseAddress,
+                        ModuleMemorySize = module.ModuleMemorySize
+                    })
+                    .ToArray();
+            }
         }
     }
 }

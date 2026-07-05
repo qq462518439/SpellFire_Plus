@@ -22,6 +22,87 @@ namespace SpellFire.RuntimeHost.Components
 
         public string Name => "SpellFireHook";
 
+        public RuntimeComponentStatus EvaluateSafetyBoundary(int processId)
+        {
+            RuntimeComponentStatus baseline = Probe(processId);
+            if (!baseline.Ready || !string.Equals(baseline.Reason, "MemoryReadyForHook", StringComparison.Ordinal))
+            {
+                return baseline;
+            }
+
+            StringBuilder detail = new StringBuilder(baseline.Detail ?? string.Empty);
+            detail.Append(" ReadyEvent=").Append(HookReadySignal.GetEventName(processId));
+            detail.Append(" HeartbeatEvent=").Append(HookReadySignal.GetHeartbeatEventName(processId));
+
+            try
+            {
+                using (IMemoryRobot robot = sessionFactory.Open(processId))
+                using (EventWaitHandle heartbeatEvent = HookReadySignal.CreateHeartbeat(processId))
+                {
+                    ProcessModuleInfo existingModule = robot.Modules.GetModules()
+                        .FirstOrDefault(module => string.Equals(module.Name, "SpellFire.Hook.dll", StringComparison.OrdinalIgnoreCase));
+                    bool readySignal = HookReadySignal.IsSet(processId);
+                    bool heartbeatSignal = heartbeatEvent.WaitOne(0);
+                    detail.Append(" ExistingModule=").Append(existingModule == null ? "none" : "0x" + existingModule.BaseAddress.ToString("X"));
+                    detail.Append(" ReadySignal=").Append(readySignal);
+                    detail.Append(" HeartbeatSignal=").Append(heartbeatSignal);
+
+                    if (existingModule == null)
+                    {
+                        detail.Append(" DirtyProcess=False");
+                        detail.Append(" AttachAllowed=True");
+                        detail.Append(" CommandAllowed=False");
+                        return new RuntimeComponentStatus
+                        {
+                            Name = Name,
+                            Ready = true,
+                            Reason = "SafeBoundary_CleanProcessNoHook",
+                            Detail = detail.ToString()
+                        };
+                    }
+
+                    if (readySignal && heartbeatSignal)
+                    {
+                        detail.Append(" DirtyProcess=False");
+                        detail.Append(" AttachAllowed=True");
+                        detail.Append(" CommandAllowed=True");
+                        return new RuntimeComponentStatus
+                        {
+                            Name = Name,
+                            Ready = true,
+                            Reason = "SafeBoundary_HookAlive",
+                            Detail = detail.ToString()
+                        };
+                    }
+
+                    bool recoverableStale = !readySignal;
+                    detail.Append(" DirtyProcess=True");
+                    detail.Append(" AttachAllowed=").Append(recoverableStale);
+                    detail.Append(" CommandAllowed=False");
+                    return new RuntimeComponentStatus
+                    {
+                        Name = Name,
+                        Ready = false,
+                        Reason = recoverableStale
+                            ? "SafeBoundary_DirtyRecoverable_ReadyMissing"
+                            : "SafeBoundary_DirtyRefused_HeartbeatMissing",
+                        Detail = detail.ToString()
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                detail.Append(" BoundaryError=").Append(ex.GetType().Name).Append(":").Append(ex.Message);
+                return new RuntimeComponentStatus
+                {
+                    Name = Name,
+                    Ready = false,
+                    Reason = "SafeBoundaryFailed",
+                    Detail = detail.ToString()
+                };
+            }
+        }
+
         public RuntimeComponentStatus Probe(int processId)
         {
             Process process = null;
@@ -133,6 +214,12 @@ namespace SpellFire.RuntimeHost.Components
 
         public RuntimeComponentStatus AttemptAttach(int processId)
         {
+            RuntimeComponentStatus boundary = EvaluateSafetyBoundary(processId);
+            if (string.Equals(boundary.Reason, "SafeBoundary_DirtyRefused_HeartbeatMissing", StringComparison.Ordinal))
+            {
+                return boundary;
+            }
+
             RuntimeComponentStatus baseline = Probe(processId);
             if (!baseline.Ready || !string.Equals(baseline.Reason, "MemoryReadyForHook", StringComparison.Ordinal))
             {
@@ -181,9 +268,7 @@ namespace SpellFire.RuntimeHost.Components
                         detail.Append(" StaleUnloadAttempted=True");
                         bool unloaded = robot.Libraries.FreeLibrary(existingModule.BaseAddress, 5000);
                         detail.Append(" StaleUnloadResult=").Append(unloaded);
-                        Thread.Sleep(250);
-                        bool stillLoaded = robot.Modules.GetModules()
-                            .Any(module => string.Equals(module.Name, "SpellFire.Hook.dll", StringComparison.OrdinalIgnoreCase));
+                        bool stillLoaded = WaitForModuleState(robot, "SpellFire.Hook.dll", present: false, timeoutMilliseconds: 8000);
                         detail.Append(" StaleModuleStillLoaded=").Append(stillLoaded);
                         if (!unloaded || stillLoaded)
                         {
@@ -460,6 +545,22 @@ namespace SpellFire.RuntimeHost.Components
             StringBuilder detail = new StringBuilder();
             try
             {
+                RuntimeComponentStatus boundary = EvaluateSafetyBoundary(processId);
+                detail.Append(" BoundaryReason=").Append(boundary.Reason);
+                detail.Append(" BoundaryReady=").Append(boundary.Ready);
+                if (!string.Equals(boundary.Reason, "SafeBoundary_HookAlive", StringComparison.Ordinal))
+                {
+                    return new RuntimeComponentStatus
+                    {
+                        Name = Name,
+                        Ready = false,
+                        Reason = string.Equals(boundary.Reason, "SafeBoundary_CleanProcessNoHook", StringComparison.Ordinal)
+                            ? "LuaSmokeHookUnavailable"
+                            : boundary.Reason,
+                        Detail = detail.Append(" BoundaryDetail=[").Append(boundary.Detail).Append("]").ToString()
+                    };
+                }
+
                 RuntimeComponentStatus status = GetStatus(processId);
                 detail.Append(" StatusReason=").Append(status.Reason);
                 detail.Append(" StatusReady=").Append(status.Ready);
@@ -536,6 +637,29 @@ namespace SpellFire.RuntimeHost.Components
             catch
             {
                 return false;
+            }
+        }
+
+        private static bool WaitForModuleState(IMemoryRobot robot, string moduleName, bool present, int timeoutMilliseconds)
+        {
+            int remaining = Math.Max(0, timeoutMilliseconds);
+            while (true)
+            {
+                bool found = robot.Modules.GetModules()
+                    .Any(module => string.Equals(module.Name, moduleName, StringComparison.OrdinalIgnoreCase));
+                if (found == present)
+                {
+                    return found;
+                }
+
+                if (remaining <= 0)
+                {
+                    return found;
+                }
+
+                int delay = Math.Min(100, remaining);
+                Thread.Sleep(delay);
+                remaining -= delay;
             }
         }
 

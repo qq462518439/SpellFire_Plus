@@ -85,6 +85,7 @@ namespace SpellFire.RuntimeHost.Views
                 }
 
                 RuntimeComponentStatus attachResult = concreteHook.AttemptAttach(current);
+                txtStatus.Text = DescribeStatus("Attach", attachResult);
                 return FormatSession(session) + " | " + FormatComponent(attachResult);
             });
         }
@@ -130,6 +131,7 @@ namespace SpellFire.RuntimeHost.Views
                 }
 
                 RuntimeComponentStatus component = concreteHook.LuaSmoke(current);
+                txtStatus.Text = DescribeStatus("Lua冒烟", component);
                 return FormatComponent(component);
             });
         }
@@ -161,7 +163,10 @@ namespace SpellFire.RuntimeHost.Views
             try
             {
                 string result = action(processId) ?? string.Empty;
-                txtStatus.Text = "OK " + name;
+                if (string.IsNullOrWhiteSpace(txtStatus.Text) || txtStatus.Text.StartsWith("OK ", StringComparison.Ordinal) || txtStatus.Text.StartsWith("FAIL ", StringComparison.Ordinal))
+                {
+                    txtStatus.Text = "OK " + name;
+                }
                 AppendLog("OK " + name + " " + result);
             }
             catch (Exception ex)
@@ -237,6 +242,40 @@ namespace SpellFire.RuntimeHost.Views
                    "\" Ready=" + component.Ready +
                    " Reason=\"" + (component.Reason ?? string.Empty) +
                    "\" Detail=\"" + (component.Detail ?? string.Empty) + "\"";
+        }
+
+        private static string DescribeStatus(string actionName, RuntimeComponentStatus status)
+        {
+            if (status == null)
+            {
+                return actionName + "：结果为空。";
+            }
+
+            string reason = status.Reason ?? string.Empty;
+            switch (reason)
+            {
+                case "HookReady":
+                    return actionName + "：已完成 Hook 恢复并进入可用状态。";
+                case "HookAlreadyReady":
+                    return actionName + "：当前进程已处于可用状态。";
+                case "LuaSmokeExecuted":
+                    return actionName + "：已执行，主线程桥与 Lua 桥可用。";
+                case "LuaSmokeHookUnavailable":
+                    return actionName + "：当前没有可用 Hook，需先 Attach。";
+                case "SafeBoundary_DirtyRecoverable_ReadyMissing":
+                    return actionName + "：检测到可恢复脏进程，Ready 信号缺失。";
+                case "SafeBoundary_DirtyRefused_HeartbeatMissing":
+                    return actionName + "：拒测，Hook 心跳缺失，进程不安全。";
+                case "HookLoadedButReadySignalMissing_UnloadFailed":
+                    return actionName + "：检测到旧 Hook，但卸载恢复失败。";
+                case "TargetNot32Bit":
+                    return actionName + "：目标不是 32 位 Wow 进程。";
+                case "NoWowProcess":
+                case "ProcessUnavailable":
+                    return actionName + "：未找到目标进程。";
+                default:
+                    return actionName + "：" + reason;
+            }
         }
 
         private SpellFireHookRuntimeComponent GetHookComponent()

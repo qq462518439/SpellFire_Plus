@@ -74,9 +74,10 @@ namespace SpellFire.RuntimeHost
         private static int RunPreflight(IRuntimeHost host, int processId)
         {
             IRuntimeHostSession session = host.Attach(processId);
-            RuntimeComponentStatus hook = session.Components.FirstOrDefault(item => string.Equals(item.Name, "SpellFireHook", StringComparison.Ordinal));
-            WriteLine("OK preflight " + FormatSession(session) + " | " + FormatComponent(hook));
-            return hook != null && hook.Ready ? 0 : 1;
+            SpellFireHookRuntimeComponent hook = GetHookComponent(host);
+            RuntimeComponentStatus boundary = hook == null ? null : hook.EvaluateSafetyBoundary(processId);
+            WriteLine("OK preflight " + FormatSession(session) + " | " + FormatComponent(boundary));
+            return boundary != null && boundary.Ready ? 0 : 1;
         }
 
         private static int RunAttach(IRuntimeHost host, int processId)
