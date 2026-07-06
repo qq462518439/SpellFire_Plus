@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <RootNamespace>SpellFire.WowRuntime.Cli</RootNamespace>
+    <AssemblyName>SpellFire.WowRuntime.Cli</AssemblyName>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <PlatformTarget>x86</PlatformTarget>
+    <Prefer32Bit>true</Prefer32Bit>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SpellFire.WowRuntime\SpellFire.WowRuntime.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <RootNamespace>SpellFire.WowRuntime</RootNamespace>
+    <AssemblyName>SpellFire.WowRuntime</AssemblyName>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <PlatformTarget>x86</PlatformTarget>
+    <Prefer32Bit>true</Prefer32Bit>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SpellFire.MemoryRobot\SpellFire.MemoryRobot.csproj" />
+    <ProjectReference Include="..\SpellFire.RuntimeHost\SpellFire.RuntimeHost.csproj" />
+  </ItemGroup>
+</Project>
