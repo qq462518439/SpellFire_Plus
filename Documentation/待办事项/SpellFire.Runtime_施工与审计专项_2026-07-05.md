@@ -121,3 +121,49 @@ dotnet build .\src\SpellFire.MemoryRobot.Cli\SpellFire.MemoryRobot.Cli.csproj -c
 memoryrobot-smoke: OK, included OK runtime-probe TargetProcessId=11632 Ready=True Reason="SessionOpened"
 memoryrobot-failure-matrix: OK
 ```
+
+## 2026-07-06 Runtime facade 成品入口验收
+
+本轮结论：
+
+1. `SpellFire.Runtime.RuntimeFacade` 已从 `Attach / ProbeMemory` 扩展为正式上层入口。
+2. 当前 facade 已覆盖：
+   - `Preflight`
+   - `AttachHook`
+   - `GetHookStatus`
+   - `PingHook`
+   - `GetHookInfo`
+   - `ReadHookSelfModule`
+   - `LuaSmoke`
+   - `ExecuteLua`
+   - `ShutdownHook`
+3. `RuntimeCompositionRoot.CreateDefaultFacade()` 已显式组合 `RuntimeHookService`。
+4. `tools/runtime-facade-command.ps1` 可从 32 位 PowerShell 宿主直接调用 `RuntimeFacade`。
+5. `tools/runtime-facade-matrix.py` 是 Runtime facade 专属验收矩阵。
+
+当前有效边界：
+
+1. `SpellFire.Runtime` 是上层正式入口。
+2. `SpellFire.RuntimeHost` 继续承担宿主实现与 smoke 壳职责。
+3. `SpellFire.MemoryRobot` 继续只作为底层内存/进程地基。
+4. 本轮不引入对象层、移动层、产品生命周期。
+
+已验证：
+
+```powershell
+dotnet build .\src\SpellFire.Runtime\SpellFire.Runtime.csproj -c Debug -p:UseSharedCompilation=false
+python .\tools\runtime-facade-matrix.py
+```
+
+验收结果：
+
+1. 无效 PID 稳定返回 `ProcessUnavailable`。
+2. 正常 Wow 进程可通过 facade 完成 `AttachHook`。
+3. facade 可完成 `HookStatus / PingHook / HookInfo / ReadSelfModule`。
+4. facade 可完成真实 `LuaSmoke`，结果包含 `LuaBridgeReady=True`。
+5. facade 可完成真实 `ExecuteLua`，结果包含 `TextPayload=OK:FrameScriptExecute=0`。
+6. facade 可完成 `ShutdownHook`。
+
+重要修正：
+
+`HookPayloadPathResolver` 不再只依赖 `AppDomain.CurrentDomain.BaseDirectory`。从 PowerShell、主程序或其他宿主加载 facade 时，payload 查找必须能落到 `SpellFire.RuntimeHost` 程序集目录。

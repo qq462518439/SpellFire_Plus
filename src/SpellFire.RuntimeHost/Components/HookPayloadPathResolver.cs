@@ -7,14 +7,22 @@ namespace SpellFire.RuntimeHost.Components
     {
         public static string GetDefaultPayloadPath()
         {
-            string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
-            string sourcePath = Path.Combine(baseDirectory, "SpellFire.Hook.source.dll");
-            if (File.Exists(sourcePath))
+            foreach (string baseDirectory in GetProbeDirectories())
             {
-                return sourcePath;
+                string sourcePath = Path.Combine(baseDirectory, "SpellFire.Hook.source.dll");
+                if (File.Exists(sourcePath))
+                {
+                    return sourcePath;
+                }
+
+                string payloadPath = Path.Combine(baseDirectory, "SpellFire.Hook.dll");
+                if (File.Exists(payloadPath))
+                {
+                    return payloadPath;
+                }
             }
 
-            return Path.Combine(baseDirectory, "SpellFire.Hook.dll");
+            return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SpellFire.Hook.dll");
         }
 
         public static string CreateInjectableCopy(int processId)
@@ -34,6 +42,17 @@ namespace SpellFire.RuntimeHost.Components
         public static string GetTempRoot()
         {
             return Path.Combine(Path.GetTempPath(), "SpellFireHookPayloads");
+        }
+
+        private static string[] GetProbeDirectories()
+        {
+            string assemblyDirectory = Path.GetDirectoryName(typeof(HookPayloadPathResolver).Assembly.Location);
+            return new[]
+            {
+                AppDomain.CurrentDomain.BaseDirectory,
+                assemblyDirectory,
+                Directory.GetCurrentDirectory()
+            };
         }
     }
 }

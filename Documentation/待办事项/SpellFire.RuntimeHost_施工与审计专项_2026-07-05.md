@@ -862,3 +862,53 @@ powershell -ExecutionPolicy Bypass -File .\tools\runtimehost-lua-gate.ps1
 3. 如果代码出现 `FrameScript__Execute` 或 `0x819210`，必须同时出现主线程/EndScene 执行门，否则失败。
 
 这条门禁不能证明 Lua 冒烟完成，只用于防止再次把输入链伪装成 Lua 冒烟。
+
+## 2026-07-06 RuntimeHost 统一操作层收口
+
+本轮结论：
+
+1. `RuntimeHost.Cli`、`RuntimeHost` WPF 冒烟页、`App.xaml.cs` 命令入口已统一改走 `RuntimeHostOperationService`。
+2. `RuntimeHostCommandLineRunner` 负责 CLI 命令分发。
+3. `RuntimeHostOutputFormatter` 负责单行输出格式。
+4. `RuntimeHostProcessLocator` 负责查找最新 Wow 进程。
+5. UI 层不再直接查找 `SpellFireHookRuntimeComponent`。
+
+当前有效命令入口：
+
+1. `preflight`
+2. `memory-probe`
+3. `attach`
+4. `status`
+5. `command-ping`
+6. `hook-info`
+7. `read-self-module`
+8. `lua-smoke`
+9. `lua-exec`
+10. `shutdown`
+11. `cleanup`
+
+已验证：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\runtimehost-hook-lifecycle.ps1 -ProcessId 6300 -SkipBuild
+powershell -ExecutionPolicy Bypass -File .\tools\runtimehost-lua-gate.ps1
+```
+
+验收结果：
+
+1. live Wow 进程可 attach。
+2. 重复 attach 可识别 `HookAlreadyReady`。
+3. 命令通道可 ping。
+4. `hook-info` 和 `read-self-module` 可用。
+5. `lua-smoke` 走真实主线程 FrameScript 桥。
+6. `lua-exec` 可在游戏聊天框执行脚本。
+7. Ready 缺失场景可恢复。
+8. Heartbeat 缺失场景会拒绝，或被记录为心跳重置信号竞态。
+
+状态修正：
+
+本文件早期 “Plus 当前没有真实 Lua bridge / 当前不能宣称 Lua 冒烟完成” 是历史结论。当前有效结论以本节为准：真实 Lua 冒烟已通过 Hook 命令通道和主线程 FrameScript 桥验收。
+
+路径修正：
+
+当前仓库实际 Hook 项目目录是 `src\SpellFire.Hook`。本轮已把相关项目和脚本从错误的 `src\Hook` 修正为 `src\SpellFire.Hook`。

@@ -11,6 +11,25 @@ DEFAULT_CHAT_FRAME:AddMessage("SPELLFIRE_LUA_OK");
 
 当前不继续把 LuaBridge 扩成主线。
 
+## 2026-07-06 验收补充
+
+新增 Runtime facade 矩阵后，LuaBridge 通过了上层 facade 入口验收：
+
+```powershell
+python .\tools\runtime-facade-matrix.py
+```
+
+已确认：
+
+1. `RuntimeFacade.LuaSmoke(processId)` 返回 `LuaSmokeExecuted`。
+2. `RuntimeFacade.ExecuteLua(processId, script)` 返回 `LuaExecuteSucceeded`。
+3. 输出包含 `LuaBridgeReady=True`。
+4. 输出包含 `TextPayload=OK:FrameScriptExecute=0`。
+
+当前结论：
+
+LuaBridge 已可作为 Runtime facade 的已验证能力被调用，但仍不扩展为对象层、移动层或产品层主线。
+
 ## 后置原因
 
 1. LuaBridge 已完成一次冒烟突破，但稳定性还需要单独专项验证。
