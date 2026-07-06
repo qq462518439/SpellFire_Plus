@@ -15,6 +15,14 @@ namespace SpellFire.WowRuntime.ObjectManager
 
         WowRuntimeResult<ObjectManagerSnapshot> GetObjectsByEntry(int entry, int limit);
 
+        WowRuntimeResult<ObjectManagerSnapshot> GetObjectsByKind(ObjectKind kind, int limit);
+
         WowRuntimeResult<ObjectManagerSnapshot> GetNearbyObjects(Vector3 center, float radius, int limit);
+
+        WowRuntimeResult<ObjectManagerSnapshot> GetNearbyObjectsByKind(ObjectKind kind, Vector3 center, float radius, int limit);
+
+        WowRuntimeResult<WowObjectSnapshot> GetNearestObject(Vector3 center, float radius);
+
+        WowRuntimeResult<WowObjectSnapshot> GetNearestObjectByKind(ObjectKind kind, Vector3 center, float radius);
     }
 }

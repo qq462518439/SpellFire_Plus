@@ -5,6 +5,11 @@ namespace SpellFire.WowRuntime.ObjectManager
     public class WowObjectSnapshot
     {
         public WowObjectSnapshot(ulong guid, int entry, string name, ObjectKind kind, Vector3 position, bool isValid)
+            : this(guid, entry, name, kind, position, isValid, 0, 0)
+        {
+        }
+
+        public WowObjectSnapshot(ulong guid, int entry, string name, ObjectKind kind, Vector3 position, bool isValid, uint baseAddress, float distanceFromMe)
         {
             Guid = guid;
             Entry = entry;
@@ -12,6 +17,8 @@ namespace SpellFire.WowRuntime.ObjectManager
             Kind = kind;
             Position = position;
             IsValid = isValid;
+            BaseAddress = baseAddress;
+            DistanceFromMe = distanceFromMe;
         }
 
         public ulong Guid { get; }
@@ -25,5 +32,9 @@ namespace SpellFire.WowRuntime.ObjectManager
         public Vector3 Position { get; }
 
         public bool IsValid { get; }
+
+        public uint BaseAddress { get; }
+
+        public float DistanceFromMe { get; }
     }
 }

@@ -96,6 +96,54 @@ def main():
             0,
             ["Ready=True", 'Reason="Ready"', "Object=Guid=0x"],
         ) and passed
+        passed = run_case(
+            "live-object-by-local-guid",
+            "object-by-guid",
+            wow_pid,
+            0,
+            ["Ready=True", 'Reason="Ready"', "Object=Guid=0x10"],
+            ["--guid", "16"],
+        ) and passed
+        passed = run_case(
+            "live-object-target-empty-or-ready",
+            "object-snapshot",
+            wow_pid,
+            0,
+            ["Ready=True", "TargetGuid=0x"],
+            ["--limit", "512"],
+        ) and passed
+        passed = run_case(
+            "live-object-kind-unit",
+            "object-snapshot",
+            wow_pid,
+            0,
+            ["Ready=True", 'Reason="Ready"', "ObjectCount="],
+            ["--limit", "512", "--kind", "Unit"],
+        ) and passed
+        passed = run_case(
+            "live-object-list-gameobject",
+            "object-list",
+            wow_pid,
+            0,
+            ["Ready=True", 'Reason="Ready"', "ItemIndex="],
+            ["--limit", "512", "--kind", "GameObject"],
+        ) and passed
+        passed = run_case(
+            "live-object-nearby-unit",
+            "object-nearby",
+            wow_pid,
+            0,
+            ["Ready=True", 'Reason="Ready"', "ObjectCount="],
+            ["--limit", "512", "--radius", "80", "--kind", "Unit"],
+        ) and passed
+        passed = run_case(
+            "live-object-nearby-list-gameobject",
+            "object-nearby-list",
+            wow_pid,
+            0,
+            ["Ready=True", 'Reason="Ready"', "ItemIndex=", "Dist="],
+            ["--limit", "512", "--radius", "80", "--kind", "GameObject"],
+        ) and passed
 
     if passed:
         print("OK wowruntime-objectmanager-matrix")

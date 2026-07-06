@@ -14,7 +14,23 @@ namespace SpellFire.WowRuntime.ObjectManager
             bool isAlive,
             bool inCombat,
             ulong targetGuid)
-            : base(guid, entry, name, kind, position, isValid)
+            : this(guid, entry, name, kind, position, isValid, isAlive, inCombat, targetGuid, 0, 0)
+        {
+        }
+
+        public WowUnitSnapshot(
+            ulong guid,
+            int entry,
+            string name,
+            ObjectKind kind,
+            Vector3 position,
+            bool isValid,
+            bool isAlive,
+            bool inCombat,
+            ulong targetGuid,
+            uint baseAddress,
+            float distanceFromMe)
+            : base(guid, entry, name, kind, position, isValid, baseAddress, distanceFromMe)
         {
             IsAlive = isAlive;
             InCombat = inCombat;

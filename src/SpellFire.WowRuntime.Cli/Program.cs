@@ -16,6 +16,7 @@ namespace SpellFire.WowRuntime.Cli
             ulong guid = ParseUlong(GetArg(args, "--guid", "0"), 0);
             int entry = ParseInt(GetArg(args, "--entry", "0"), 0);
             float radius = ParseFloat(GetArg(args, "--radius", "40"), 40);
+            ObjectKind? kind = ParseKind(GetArg(args, "--kind", string.Empty));
 
             IWowRuntime runtime = new WowRuntimeFactory().Create(processId);
 
@@ -27,12 +28,28 @@ namespace SpellFire.WowRuntime.Cli
                     return PrintObjectResult(command, processId, runtime.ObjectManager.GetTarget());
                 case "object-by-guid":
                     return PrintObjectResult(command, processId, runtime.ObjectManager.GetObjectByGuid(guid));
+                case "object-nearest":
+                    return PrintObjectResult(command, processId, kind.HasValue
+                        ? runtime.ObjectManager.GetNearestObjectByKind(kind.Value, new Vector3(0, 0, 0), radius)
+                        : runtime.ObjectManager.GetNearestObject(new Vector3(0, 0, 0), radius));
                 case "object-by-entry":
                     return PrintSnapshotResult(command, processId, runtime.ObjectManager.GetObjectsByEntry(entry, limit));
                 case "object-nearby":
-                    return PrintSnapshotResult(command, processId, runtime.ObjectManager.GetNearbyObjects(new Vector3(0, 0, 0), radius, limit));
+                    return PrintSnapshotResult(command, processId, kind.HasValue
+                        ? runtime.ObjectManager.GetNearbyObjectsByKind(kind.Value, new Vector3(0, 0, 0), radius, limit)
+                        : runtime.ObjectManager.GetNearbyObjects(new Vector3(0, 0, 0), radius, limit));
+                case "object-nearby-list":
+                    return PrintSnapshotResult(command, processId, kind.HasValue
+                        ? runtime.ObjectManager.GetNearbyObjectsByKind(kind.Value, new Vector3(0, 0, 0), radius, limit)
+                        : runtime.ObjectManager.GetNearbyObjects(new Vector3(0, 0, 0), radius, limit), true);
+                case "object-list":
+                    return PrintSnapshotResult(command, processId, kind.HasValue
+                        ? runtime.ObjectManager.GetObjectsByKind(kind.Value, limit)
+                        : runtime.ObjectManager.GetObjects(limit), true);
                 case "object-snapshot":
-                    return PrintSnapshotResult(command, processId, runtime.ObjectManager.GetObjects(limit));
+                    return PrintSnapshotResult(command, processId, kind.HasValue
+                        ? runtime.ObjectManager.GetObjectsByKind(kind.Value, limit)
+                        : runtime.ObjectManager.GetObjects(limit));
                 default:
                     Console.WriteLine("Result=Fail Command=\"{0}\" Reason=\"UnknownCommand\" Detail=\"Unsupported command.\" ProcessId={1}", Escape(command), processId);
                     return 2;
@@ -63,6 +80,11 @@ namespace SpellFire.WowRuntime.Cli
 
         private static int PrintSnapshotResult(string command, int processId, WowRuntimeResult<ObjectManagerSnapshot> result)
         {
+            return PrintSnapshotResult(command, processId, result, false);
+        }
+
+        private static int PrintSnapshotResult(string command, int processId, WowRuntimeResult<ObjectManagerSnapshot> result, bool includeItems)
+        {
             if (!result.Success)
             {
                 Console.WriteLine(
@@ -75,14 +97,29 @@ namespace SpellFire.WowRuntime.Cli
             }
 
             Console.WriteLine(
-                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"{2}\" ObjectCount={3} Limit={4} Me={5} Target={6}",
+                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"{2}\" ObjectCount={3} Limit={4} Scanned={5} LocalGuid=0x{6:X} TargetGuid=0x{7:X} Me={8} Target={9}",
                 Escape(command),
                 processId,
                 result.Status,
                 result.Value.Count,
                 result.Value.Limit,
+                result.Value.Scanned,
+                result.Value.LocalGuid,
+                result.Value.TargetGuid,
                 FormatObject(result.Value.Me),
                 FormatObject(result.Value.Target));
+
+            if (includeItems)
+            {
+                for (int i = 0; i < result.Value.Objects.Count; i++)
+                {
+                    Console.WriteLine(
+                        "ItemIndex={0} Object={1}",
+                        i,
+                        FormatObject(result.Value.Objects[i]));
+                }
+            }
+
             return 0;
         }
 
@@ -94,14 +131,16 @@ namespace SpellFire.WowRuntime.Cli
             }
 
             return string.Format(
-                "Guid=0x{0:X} Entry={1} Name=\"{2}\" Kind={3} Pos=({4:0.###},{5:0.###},{6:0.###}) Valid={7}",
+                "Guid=0x{0:X} Base=0x{1:X} Entry={2} Name=\"{3}\" Kind={4} Pos=({5:0.###},{6:0.###},{7:0.###}) Dist={8:0.###} Valid={9}",
                 item.Guid,
+                item.BaseAddress,
                 item.Entry,
                 Escape(item.Name),
                 item.Kind,
                 item.Position.X,
                 item.Position.Y,
                 item.Position.Z,
+                item.DistanceFromMe,
                 item.IsValid);
         }
 
@@ -134,6 +173,17 @@ namespace SpellFire.WowRuntime.Cli
         {
             float parsed;
             return float.TryParse(value, out parsed) ? parsed : fallback;
+        }
+
+        private static ObjectKind? ParseKind(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            ObjectKind parsed;
+            return Enum.TryParse(value, true, out parsed) ? parsed : (ObjectKind?)null;
         }
 
         private static string Escape(string value)
