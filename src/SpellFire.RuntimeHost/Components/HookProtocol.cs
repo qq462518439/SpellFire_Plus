@@ -2,7 +2,7 @@ namespace SpellFire.RuntimeHost.Components
 {
     internal static class HookProtocol
     {
-        public const int BufferSize = 256;
+        public const int BufferSize = 1024;
         public const int Magic = 0x53464850;
         public const int Version = 2;
         public const int HeaderSize = 88;
@@ -13,6 +13,7 @@ namespace SpellFire.RuntimeHost.Components
             public const int GetHookInfo = 2;
             public const int ReadSelfModule = 3;
             public const int LuaSmoke = 4;
+            public const int ExecuteLua = 5;
         }
 
         public static class Status
@@ -27,7 +28,13 @@ namespace SpellFire.RuntimeHost.Components
             public const int Info = 0x494E464F;
             public const int PeRead = 0x50455244;
             public const int LuaSmoke = 0x4C554153;
+            public const int ExecuteLua = 0x45584543;
         }
+
+        public const int ScriptBufferOffset = HeaderSize;
+        public const int ScriptBufferLength = 512;
+        public const int ResultTextOffset = ScriptBufferOffset + ScriptBufferLength;
+        public const int ResultTextLength = BufferSize - ResultTextOffset;
 
         public static class Offsets
         {
@@ -118,6 +125,8 @@ namespace SpellFire.RuntimeHost.Components
         public bool LuaSmokeExecuted { get; set; }
 
         public int LuaSmokeLastStatus { get; set; }
+
+        public string TextPayload { get; set; }
 
         public bool Ready { get; set; }
     }

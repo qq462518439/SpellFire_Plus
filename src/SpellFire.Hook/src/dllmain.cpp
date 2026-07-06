@@ -42,6 +42,24 @@ namespace
     volatile LONG g_luaSmokeState = LuaSmokeIdle;
     volatile LONG g_luaSmokeLastStatus = 0;
     volatile LONG g_luaSmokeExecuted = 0;
+    const char* g_pendingLuaScript = nullptr;
+
+    void WriteResultText(const char* text)
+    {
+        if (g_commandBuffer == nullptr)
+        {
+            return;
+        }
+
+        char* buffer = reinterpret_cast<char*>(reinterpret_cast<BYTE*>(g_commandBuffer) + Protocol::ResultTextOffset);
+        ZeroMemory(buffer, Protocol::ResultTextLength);
+        if (text == nullptr)
+        {
+            return;
+        }
+
+        lstrcpynA(buffer, text, Protocol::ResultTextLength);
+    }
 
     void BuildEventName(wchar_t* buffer, DWORD bufferLength, const wchar_t* prefix)
     {
@@ -75,7 +93,7 @@ namespace
         }
     }
 
-    void ExecutePendingLuaSmoke()
+    void ExecutePendingLuaCommand()
     {
         if (InterlockedCompareExchange(&g_luaSmokeState, LuaSmokePending, LuaSmokePending) != LuaSmokePending)
         {
@@ -83,25 +101,33 @@ namespace
         }
 
         FrameScriptExecuteFn execute = reinterpret_cast<FrameScriptExecuteFn>(WowFrameScriptExecute);
-        const char* script = "JumpOrAscendStart(); DEFAULT_CHAT_FRAME:AddMessage(\"SPELLFIRE_LUA_OK\");";
+        const char* script = g_pendingLuaScript != nullptr
+            ? g_pendingLuaScript
+            : "JumpOrAscendStart(); DEFAULT_CHAT_FRAME:AddMessage(\"SPELLFIRE_LUA_OK\");";
         __try
         {
             int status = execute(script, 0, 0);
             InterlockedExchange(&g_luaSmokeLastStatus, status);
             InterlockedExchange(&g_luaSmokeExecuted, 1);
+            char okBuffer[64] = {};
+            wsprintfA(okBuffer, "OK:FrameScriptExecute=%d", status);
+            WriteResultText(okBuffer);
             InterlockedExchange(&g_luaSmokeState, LuaSmokeDone);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
             InterlockedExchange(&g_luaSmokeLastStatus, static_cast<LONG>(GetExceptionCode()));
             InterlockedExchange(&g_luaSmokeExecuted, 0);
+            char errorBuffer[64] = {};
+            wsprintfA(errorBuffer, "ERR:0x%08X", GetExceptionCode());
+            WriteResultText(errorBuffer);
             InterlockedExchange(&g_luaSmokeState, LuaSmokeFailed);
         }
     }
 
     HRESULT WINAPI EndSceneHook(void* device)
     {
-        ExecutePendingLuaSmoke();
+        ExecutePendingLuaCommand();
         return g_originalEndScene(device);
     }
 
@@ -269,6 +295,7 @@ namespace
                     {
                         InterlockedExchange(&g_luaSmokeExecuted, 0);
                         InterlockedExchange(&g_luaSmokeLastStatus, 0);
+                        g_pendingLuaScript = "JumpOrAscendStart(); DEFAULT_CHAT_FRAME:AddMessage(\"SPELLFIRE_LUA_OK\");";
                         InterlockedExchange(&g_luaSmokeState, LuaSmokePending);
 
                         DWORD start = GetTickCount();
@@ -299,6 +326,50 @@ namespace
                             InterlockedExchange(&g_luaSmokeState, LuaSmokeIdle);
                             InterlockedExchange(&g_luaSmokeLastStatus, LuaStatusTimeout);
                             CompleteCommand(Protocol::Status::Failed, Protocol::Results::LuaSmoke, 16);
+                        }
+                    }
+                }
+                else if (command == Protocol::Commands::ExecuteLua)
+                {
+                    if (!InstallEndSceneSlotHook())
+                    {
+                        CompleteCommand(Protocol::Status::Failed, Protocol::Results::ExecuteLua, 16);
+                    }
+                    else
+                    {
+                        InterlockedExchange(&g_luaSmokeExecuted, 0);
+                        InterlockedExchange(&g_luaSmokeLastStatus, 0);
+                        g_pendingLuaScript = reinterpret_cast<const char*>(reinterpret_cast<BYTE*>(g_commandBuffer) + Protocol::ScriptBufferOffset);
+                        InterlockedExchange(&g_luaSmokeState, LuaSmokePending);
+
+                        DWORD start = GetTickCount();
+                        bool completed = false;
+                        while (GetTickCount() - start < 5000)
+                        {
+                            LONG state = InterlockedCompareExchange(&g_luaSmokeState, LuaSmokeIdle, LuaSmokeDone);
+                            if (state == LuaSmokeDone)
+                            {
+                                CompleteCommand(Protocol::Status::Ok, Protocol::Results::ExecuteLua, 16);
+                                completed = true;
+                                break;
+                            }
+
+                            state = InterlockedCompareExchange(&g_luaSmokeState, LuaSmokeIdle, LuaSmokeFailed);
+                            if (state == LuaSmokeFailed)
+                            {
+                                CompleteCommand(Protocol::Status::Failed, Protocol::Results::ExecuteLua, 16);
+                                completed = true;
+                                break;
+                            }
+
+                            Sleep(10);
+                        }
+
+                        if (!completed)
+                        {
+                            InterlockedExchange(&g_luaSmokeState, LuaSmokeIdle);
+                            InterlockedExchange(&g_luaSmokeLastStatus, LuaStatusTimeout);
+                            CompleteCommand(Protocol::Status::Failed, Protocol::Results::ExecuteLua, 16);
                         }
                     }
                 }

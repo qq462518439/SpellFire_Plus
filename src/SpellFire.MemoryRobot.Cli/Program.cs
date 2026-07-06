@@ -7,6 +7,7 @@ using SpellFire.MemoryRobot.Diagnostics;
 using SpellFire.MemoryRobot.Native;
 using SpellFire.MemoryRobot.Process;
 using SpellFire.MemoryRobot.Reading;
+using SpellFire.MemoryRobot.Services;
 using SpellFire.MemoryRobot.Writing;
 using SpellFire.Runtime;
 using SpellFire.Runtime.Models;
@@ -16,6 +17,9 @@ namespace SpellFire.MemoryRobot.Cli
     internal static class Program
     {
         private static readonly MemorySessionFactory SessionFactory = new MemorySessionFactory(new MemoryRobotSessionManager());
+        private static readonly ProcessAttachService AttachService = new ProcessAttachService(SessionFactory);
+        private static readonly ProcessSnapshotService SnapshotService = new ProcessSnapshotService(SessionFactory);
+        private static readonly RemoteExecutionService RemoteExecutionService = new RemoteExecutionService(SessionFactory);
 
         private static int Main(string[] args)
         {
@@ -64,6 +68,10 @@ namespace SpellFire.MemoryRobot.Cli
                         return RunSelfRemoteThreadGetCurrentProcessId();
                     case "self-load-library-known-system-dll":
                         return RunSelfLoadLibraryKnownSystemDll();
+                    case "self-free-library-known-system-dll":
+                        return RunSelfFreeLibraryKnownSystemDll();
+                    case "self-load-then-free-library-known-system-dll":
+                        return RunSelfLoadThenFreeLibraryKnownSystemDll();
                     case "try-read-invalid":
                         return RunTryReadInvalid(processId);
                     default:
@@ -264,29 +272,26 @@ namespace SpellFire.MemoryRobot.Cli
 
         private static int RunModuleSnapshot(int processId)
         {
-            using (IMemoryRobot robot = SessionFactory.Open(processId))
-            {
-                var modules = robot.Modules.GetModules();
-                bool ok = modules.Count > 0;
-                ProcessModuleInfo first = modules.FirstOrDefault();
-                WriteLine((ok ? "OK" : "FAIL") +
-                          " module-snapshot TargetProcessId=" + processId +
-                          " Count=" + modules.Count +
-                          " First=" + FormatModule(first));
-                return ok ? 0 : 1;
-            }
+            var snapshot = SnapshotService.GetModules(processId);
+            bool ok = snapshot.Ready;
+            WriteLine((ok ? "OK" : "FAIL") +
+                      " module-snapshot TargetProcessId=" + processId +
+                      " Reason=\"" + Escape(snapshot.Reason) + "\"" +
+                      " " + snapshot.Detail +
+                      " First=" + FormatModule(snapshot.Modules.FirstOrDefault()));
+            return ok ? 0 : 1;
         }
 
         private static int RunMemoryRegion(int processId)
         {
-            using (IMemoryRobot robot = SessionFactory.Open(processId))
-            {
-                bool ok = robot.Regions.TryQuery(IntPtr.Zero, out var region);
-                WriteLine((ok ? "OK" : "FAIL") +
-                          " memory-region TargetProcessId=" + processId +
-                          " Region=" + FormatRegion(region));
-                return ok ? 0 : 1;
-            }
+            var result = SnapshotService.QueryRegion(processId, IntPtr.Zero);
+            bool ok = result.Ready;
+            WriteLine((ok ? "OK" : "FAIL") +
+                      " memory-region TargetProcessId=" + processId +
+                      " Reason=\"" + Escape(result.Reason) + "\"" +
+                      " " + result.Detail +
+                      " Region=" + FormatRegion(result.Region));
+            return ok ? 0 : 1;
         }
 
         private static int RunRemoteAllocFree(int processId)
@@ -435,16 +440,54 @@ namespace SpellFire.MemoryRobot.Cli
             int selfProcessId = System.Diagnostics.Process.GetCurrentProcess().Id;
             string systemDirectory = Environment.SystemDirectory;
             string dllPath = System.IO.Path.Combine(systemDirectory, "version.dll");
-            using (IMemoryRobot robot = SessionFactory.Open(selfProcessId))
+            var result = RemoteExecutionService.LoadLibrary(selfProcessId, dllPath, 5000);
+            bool ok = result.Ready;
+            WriteLine((ok ? "OK" : "FAIL") +
+                      " self-load-library-known-system-dll SelfProcessId=" + selfProcessId +
+                      " Path=\"" + Escape(dllPath) + "\"" +
+                      " Reason=\"" + Escape(result.Reason) + "\"" +
+                      " ModuleHandle=0x" + result.ModuleHandle.ToInt32().ToString("X", CultureInfo.InvariantCulture));
+            return ok ? 0 : 1;
+        }
+
+        private static int RunSelfFreeLibraryKnownSystemDll()
+        {
+            int selfProcessId = System.Diagnostics.Process.GetCurrentProcess().Id;
+            string systemDirectory = Environment.SystemDirectory;
+            string dllPath = System.IO.Path.Combine(systemDirectory, "version.dll");
+            var load = RemoteExecutionService.LoadLibrary(selfProcessId, dllPath, 5000);
+            if (!load.Ready)
             {
-                int moduleHandle = robot.Libraries.LoadLibrary(dllPath, 5000);
-                bool ok = moduleHandle != 0;
-                WriteLine((ok ? "OK" : "FAIL") +
-                          " self-load-library-known-system-dll SelfProcessId=" + selfProcessId +
-                          " Path=\"" + Escape(dllPath) + "\"" +
-                          " ModuleHandle=0x" + moduleHandle.ToString("X", CultureInfo.InvariantCulture));
-                return ok ? 0 : 1;
+                WriteLine("FAIL self-free-library-known-system-dll SelfProcessId=" + selfProcessId +
+                          " Reason=\"LoadBeforeFreeFailed\" Detail=\"" + Escape(load.Detail) + "\"");
+                return 1;
             }
+
+            var free = RemoteExecutionService.FreeLibrary(selfProcessId, load.ModuleHandle, 5000);
+            bool ok = free.Ready;
+            WriteLine((ok ? "OK" : "FAIL") +
+                      " self-free-library-known-system-dll SelfProcessId=" + selfProcessId +
+                      " LoadHandle=0x" + load.ModuleHandle.ToInt32().ToString("X", CultureInfo.InvariantCulture) +
+                      " FreeReason=\"" + Escape(free.Reason) + "\"");
+            return ok ? 0 : 1;
+        }
+
+        private static int RunSelfLoadThenFreeLibraryKnownSystemDll()
+        {
+            int selfProcessId = System.Diagnostics.Process.GetCurrentProcess().Id;
+            string systemDirectory = Environment.SystemDirectory;
+            string dllPath = System.IO.Path.Combine(systemDirectory, "version.dll");
+            var load = RemoteExecutionService.LoadLibrary(selfProcessId, dllPath, 5000);
+            var free = load.Ready
+                ? RemoteExecutionService.FreeLibrary(selfProcessId, load.ModuleHandle, 5000)
+                : null;
+            bool ok = load.Ready && free != null && free.Ready;
+            WriteLine((ok ? "OK" : "FAIL") +
+                      " self-load-then-free-library-known-system-dll SelfProcessId=" + selfProcessId +
+                      " LoadReason=\"" + Escape(load.Reason) + "\"" +
+                      " LoadHandle=0x" + load.ModuleHandle.ToInt32().ToString("X", CultureInfo.InvariantCulture) +
+                      " FreeReason=\"" + Escape(free?.Reason) + "\"");
+            return ok ? 0 : 1;
         }
 
         private static int ParseProcessId(string[] args)
@@ -544,7 +587,7 @@ namespace SpellFire.MemoryRobot.Cli
 
         private static void WriteUsage()
         {
-            WriteLine("Usage: SpellFire.MemoryRobot.Cli <probe|runtime-probe|probe-expect|session-open-close|close-then-reopen|snapshot-after-close|session-close-all|process-exit-after-open|module-snapshot|memory-region|remote-alloc-free|write-remote-allocation|remote-thread-invalid-start|load-library-missing-file|self-remote-thread-get-current-process-id|self-load-library-known-system-dll|try-read-invalid> [pid] [expectedReason]");
+            WriteLine("Usage: SpellFire.MemoryRobot.Cli <probe|runtime-probe|probe-expect|session-open-close|close-then-reopen|snapshot-after-close|session-close-all|process-exit-after-open|module-snapshot|memory-region|remote-alloc-free|write-remote-allocation|remote-thread-invalid-start|load-library-missing-file|self-remote-thread-get-current-process-id|self-load-library-known-system-dll|self-free-library-known-system-dll|self-load-then-free-library-known-system-dll|try-read-invalid> [pid] [expectedReason]");
         }
     }
 }

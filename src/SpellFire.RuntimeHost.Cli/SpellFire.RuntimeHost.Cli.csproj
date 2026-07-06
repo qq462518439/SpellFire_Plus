@@ -15,7 +15,7 @@
 
   <Target Name="CopySpellFireHookPayload" AfterTargets="Build">
     <ItemGroup>
-      <SpellFireHookPayload Include="..\SpellFire.Hook\bin\$(Configuration)\SpellFire.Hook.dll" />
+      <SpellFireHookPayload Include="..\Hook\bin\$(Configuration)\SpellFire.Hook.dll" />
     </ItemGroup>
     <Copy SourceFiles="@(SpellFireHookPayload)"
           DestinationFiles="@(SpellFireHookPayload->'$(OutputPath)SpellFire.Hook.source.dll')"

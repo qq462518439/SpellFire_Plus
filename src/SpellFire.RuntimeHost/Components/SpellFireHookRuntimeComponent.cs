@@ -4,20 +4,28 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
-using SpellFire.MemoryRobot.Abstractions;
+using SpellFire.MemoryRobot.Models;
 using SpellFire.MemoryRobot.Native;
 using SpellFire.MemoryRobot.Process;
+using SpellFire.MemoryRobot.Services;
 using SpellFire.RuntimeHost.Abstractions;
 
 namespace SpellFire.RuntimeHost.Components
 {
     public sealed class SpellFireHookRuntimeComponent : IRuntimeComponent
     {
-        private readonly IMemorySessionFactory sessionFactory;
+        private readonly ProcessAttachService attachService;
+        private readonly ProcessSnapshotService snapshotService;
+        private readonly RemoteExecutionService remoteExecutionService;
 
-        public SpellFireHookRuntimeComponent(IMemorySessionFactory sessionFactory)
+        public SpellFireHookRuntimeComponent(
+            ProcessAttachService attachService,
+            ProcessSnapshotService snapshotService,
+            RemoteExecutionService remoteExecutionService)
         {
-            this.sessionFactory = sessionFactory ?? throw new ArgumentNullException(nameof(sessionFactory));
+            this.attachService = attachService ?? throw new ArgumentNullException(nameof(attachService));
+            this.snapshotService = snapshotService ?? throw new ArgumentNullException(nameof(snapshotService));
+            this.remoteExecutionService = remoteExecutionService ?? throw new ArgumentNullException(nameof(remoteExecutionService));
         }
 
         public string Name => "SpellFireHook";
@@ -36,11 +44,10 @@ namespace SpellFire.RuntimeHost.Components
 
             try
             {
-                using (IMemoryRobot robot = sessionFactory.Open(processId))
+                ModuleSnapshotResult moduleSnapshot = snapshotService.GetModules(processId, "SpellFire.Hook.dll");
                 using (EventWaitHandle heartbeatEvent = HookReadySignal.CreateHeartbeat(processId))
                 {
-                    ProcessModuleInfo existingModule = robot.Modules.GetModules()
-                        .FirstOrDefault(module => string.Equals(module.Name, "SpellFire.Hook.dll", StringComparison.OrdinalIgnoreCase));
+                    ProcessModuleInfo existingModule = moduleSnapshot.MatchedModule;
                     bool readySignal = HookReadySignal.IsSet(processId);
                     bool heartbeatSignal = heartbeatEvent.WaitOne(0);
                     detail.Append(" ExistingModule=").Append(existingModule == null ? "none" : "0x" + existingModule.BaseAddress.ToString("X"));
@@ -52,13 +59,7 @@ namespace SpellFire.RuntimeHost.Components
                         detail.Append(" DirtyProcess=False");
                         detail.Append(" AttachAllowed=True");
                         detail.Append(" CommandAllowed=False");
-                        return new RuntimeComponentStatus
-                        {
-                            Name = Name,
-                            Ready = true,
-                            Reason = "SafeBoundary_CleanProcessNoHook",
-                            Detail = detail.ToString()
-                        };
+                        return new RuntimeComponentStatus { Name = Name, Ready = true, Reason = "SafeBoundary_CleanProcessNoHook", Detail = detail.ToString() };
                     }
 
                     if (readySignal && heartbeatSignal)
@@ -66,28 +67,14 @@ namespace SpellFire.RuntimeHost.Components
                         detail.Append(" DirtyProcess=False");
                         detail.Append(" AttachAllowed=True");
                         detail.Append(" CommandAllowed=True");
-                        return new RuntimeComponentStatus
-                        {
-                            Name = Name,
-                            Ready = true,
-                            Reason = "SafeBoundary_HookAlive",
-                            Detail = detail.ToString()
-                        };
+                        return new RuntimeComponentStatus { Name = Name, Ready = true, Reason = "SafeBoundary_HookAlive", Detail = detail.ToString() };
                     }
 
                     bool recoverableStale = !readySignal;
                     detail.Append(" DirtyProcess=True");
                     detail.Append(" AttachAllowed=").Append(recoverableStale);
                     detail.Append(" CommandAllowed=False");
-                    return new RuntimeComponentStatus
-                    {
-                        Name = Name,
-                        Ready = false,
-                        Reason = recoverableStale
-                            ? "SafeBoundary_DirtyRecoverable_ReadyMissing"
-                            : "SafeBoundary_DirtyRefused_HeartbeatMissing",
-                        Detail = detail.ToString()
-                    };
+                    return new RuntimeComponentStatus { Name = Name, Ready = false, Reason = recoverableStale ? "SafeBoundary_DirtyRecoverable_ReadyMissing" : "SafeBoundary_DirtyRefused_HeartbeatMissing", Detail = detail.ToString() };
                 }
             }
             catch (Exception ex)
@@ -105,111 +92,20 @@ namespace SpellFire.RuntimeHost.Components
 
         public RuntimeComponentStatus Probe(int processId)
         {
-            Process process = null;
-            try
+            ProcessAttachResult attach = attachService.Attach(processId);
+            if (!attach.Ready)
             {
-                process = Process.GetProcessById(processId);
-            }
-            catch (Exception ex)
-            {
-                return new RuntimeComponentStatus
-                {
-                    Name = Name,
-                    Ready = false,
-                    Reason = "ProcessUnavailable",
-                    Detail = ex.GetType().Name + ":" + ex.Message
-                };
+                return new RuntimeComponentStatus { Name = Name, Ready = false, Reason = attach.Reason, Detail = attach.Detail };
             }
 
-            StringBuilder detail = new StringBuilder();
-            detail.Append(" Process=").Append(process.ProcessName);
-            detail.Append(" Pid=").Append(process.Id);
-            detail.Append(" Responding=").Append(process.Responding);
-            bool isTargetWow64 = false;
-            bool wow64Known = TryIsWow64(process, out isTargetWow64);
-            detail.Append(" TargetWow64Known=").Append(wow64Known);
-            detail.Append(" TargetWow64=").Append(wow64Known ? isTargetWow64.ToString() : "Unknown");
-
-            if (!wow64Known)
+            RemoteExecutionResult allocationProbe = remoteExecutionService.ProbeAllocation(processId, 64, MemoryProtection.ExecuteReadWrite);
+            return new RuntimeComponentStatus
             {
-                return new RuntimeComponentStatus
-                {
-                    Name = Name,
-                    Ready = false,
-                    Reason = "TargetBitnessUnknown",
-                    Detail = detail.ToString()
-                };
-            }
-
-            if (!isTargetWow64)
-            {
-                return new RuntimeComponentStatus
-                {
-                    Name = Name,
-                    Ready = false,
-                    Reason = "TargetNot32Bit",
-                    Detail = detail.ToString()
-                };
-            }
-
-            try
-            {
-                using (IMemoryRobot robot = sessionFactory.Open(processId))
-                {
-                    detail.Append(" SessionOpen=").Append(robot.Session.IsOpen);
-                    detail.Append(" Handle=").Append(robot.Session.Handle == IntPtr.Zero ? "null" : "0x" + robot.Session.Handle.ToString("X"));
-
-                    IntPtr allocated = IntPtr.Zero;
-                    try
-                    {
-                        allocated = robot.Allocator.Allocate(64, AllocationType.Commit | AllocationType.Reserve, MemoryProtection.ExecuteReadWrite);
-                        detail.Append(" Alloc=").Append(allocated == IntPtr.Zero ? "null" : "0x" + allocated.ToString("X"));
-                        robot.Allocator.Free(allocated);
-                        detail.Append(" Free=True");
-
-                        return new RuntimeComponentStatus
-                        {
-                            Name = Name,
-                            Ready = true,
-                            Reason = "MemoryReadyForHook",
-                            Detail = detail.ToString()
-                        };
-                    }
-                    catch (Exception allocEx)
-                    {
-                        if (allocated != IntPtr.Zero)
-                        {
-                            try
-                            {
-                                robot.Allocator.Free(allocated);
-                            }
-                            catch
-                            {
-                            }
-                        }
-
-                        detail.Append(" AllocError=").Append(allocEx.GetType().Name).Append(":").Append(allocEx.Message);
-                        return new RuntimeComponentStatus
-                        {
-                            Name = Name,
-                            Ready = false,
-                            Reason = "RemoteAllocationFailed",
-                            Detail = detail.ToString()
-                        };
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                detail.Append(" OpenError=").Append(ex.GetType().Name).Append(":").Append(ex.Message);
-                return new RuntimeComponentStatus
-                {
-                    Name = Name,
-                    Ready = false,
-                    Reason = "MemorySessionOpenFailed",
-                    Detail = detail.ToString()
-                };
-            }
+                Name = Name,
+                Ready = allocationProbe.Ready,
+                Reason = allocationProbe.Ready ? "MemoryReadyForHook" : allocationProbe.Reason,
+                Detail = (attach.Detail ?? string.Empty) + " " + (allocationProbe.Detail ?? string.Empty)
+            };
         }
 
         public RuntimeComponentStatus AttemptAttach(int processId)
@@ -245,10 +141,8 @@ namespace SpellFire.RuntimeHost.Components
             try
             {
                 using (EventWaitHandle readyEvent = HookReadySignal.CreateForAttach(processId))
-                using (IMemoryRobot robot = sessionFactory.Open(processId))
                 {
-                    var existingModule = robot.Modules.GetModules()
-                        .FirstOrDefault(module => string.Equals(module.Name, "SpellFire.Hook.dll", StringComparison.OrdinalIgnoreCase));
+                    var existingModule = snapshotService.GetModules(processId, "SpellFire.Hook.dll").MatchedModule;
                     if (existingModule != null)
                     {
                         detail.Append(" ExistingModule=0x").Append(existingModule.BaseAddress.ToString("X"));
@@ -266,9 +160,10 @@ namespace SpellFire.RuntimeHost.Components
                         }
 
                         detail.Append(" StaleUnloadAttempted=True");
-                        bool unloaded = robot.Libraries.FreeLibrary(existingModule.BaseAddress, 5000);
+                        RemoteExecutionResult freeResult = remoteExecutionService.FreeLibrary(processId, existingModule.BaseAddress, 5000);
+                        bool unloaded = freeResult.Ready;
                         detail.Append(" StaleUnloadResult=").Append(unloaded);
-                        bool stillLoaded = WaitForModuleState(robot, "SpellFire.Hook.dll", present: false, timeoutMilliseconds: 8000);
+                        bool stillLoaded = WaitForModuleState(processId, "SpellFire.Hook.dll", present: false, timeoutMilliseconds: 8000);
                         detail.Append(" StaleModuleStillLoaded=").Append(stillLoaded);
                         if (!unloaded || stillLoaded)
                         {
@@ -285,7 +180,8 @@ namespace SpellFire.RuntimeHost.Components
                     readyEvent.Reset();
                     string payloadPath = HookPayloadPathResolver.CreateInjectableCopy(processId);
                     detail.Append(" Payload=").Append(payloadPath);
-                    int moduleHandle = robot.Libraries.LoadLibrary(payloadPath, 10000);
+                    RemoteExecutionResult loadResult = remoteExecutionService.LoadLibrary(processId, payloadPath, 10000);
+                    int moduleHandle = loadResult.ModuleHandle.ToInt32();
                     detail.Append(" LoadLibraryExit=0x").Append(moduleHandle.ToString("X"));
                     bool ready = moduleHandle != 0 && HookReadySignal.Wait(readyEvent, 3000);
                     detail.Append(" ReadySignal=").Append(ready);
@@ -321,11 +217,9 @@ namespace SpellFire.RuntimeHost.Components
 
             try
             {
-                using (IMemoryRobot robot = sessionFactory.Open(processId))
                 using (EventWaitHandle heartbeatEvent = HookReadySignal.CreateHeartbeat(processId))
                 {
-                    var existingModule = robot.Modules.GetModules()
-                        .FirstOrDefault(module => string.Equals(module.Name, "SpellFire.Hook.dll", StringComparison.OrdinalIgnoreCase));
+                    var existingModule = snapshotService.GetModules(processId, "SpellFire.Hook.dll").MatchedModule;
                     bool ready = HookReadySignal.IsSet(processId);
                     bool heartbeat = heartbeatEvent.WaitOne(2500);
                     detail.Append(" ExistingModule=").Append(existingModule == null ? "none" : "0x" + existingModule.BaseAddress.ToString("X"));
@@ -545,23 +439,7 @@ namespace SpellFire.RuntimeHost.Components
             StringBuilder detail = new StringBuilder();
             try
             {
-                RuntimeComponentStatus boundary = EvaluateSafetyBoundary(processId);
-                detail.Append(" BoundaryReason=").Append(boundary.Reason);
-                detail.Append(" BoundaryReady=").Append(boundary.Ready);
-                if (!string.Equals(boundary.Reason, "SafeBoundary_HookAlive", StringComparison.Ordinal))
-                {
-                    return new RuntimeComponentStatus
-                    {
-                        Name = Name,
-                        Ready = false,
-                        Reason = string.Equals(boundary.Reason, "SafeBoundary_CleanProcessNoHook", StringComparison.Ordinal)
-                            ? "LuaSmokeHookUnavailable"
-                            : boundary.Reason,
-                        Detail = detail.Append(" BoundaryDetail=[").Append(boundary.Detail).Append("]").ToString()
-                    };
-                }
-
-                RuntimeComponentStatus status = GetStatus(processId);
+                RuntimeComponentStatus status = EnsureHookReadyForCommands(processId, detail);
                 detail.Append(" StatusReason=").Append(status.Reason);
                 detail.Append(" StatusReady=").Append(status.Ready);
                 detail.Append(" Script=JumpOrAscendStart+SPELLFIRE_LUA_OK");
@@ -571,8 +449,8 @@ namespace SpellFire.RuntimeHost.Components
                     {
                         Name = Name,
                         Ready = false,
-                        Reason = "LuaSmokeHookUnavailable",
-                        Detail = detail.ToString()
+                        Reason = MapLuaUnavailableReason(status.Reason, "LuaSmokeHookUnavailable"),
+                        Detail = detail.Append(" StatusDetail=[").Append(status.Detail ?? string.Empty).Append("]").ToString()
                     };
                 }
 
@@ -602,6 +480,52 @@ namespace SpellFire.RuntimeHost.Components
             }
         }
 
+        public RuntimeComponentStatus ExecuteLua(int processId, string script)
+        {
+            StringBuilder detail = new StringBuilder();
+            try
+            {
+                RuntimeComponentStatus status = EnsureHookReadyForCommands(processId, detail);
+                detail.Append(" StatusReason=").Append(status.Reason);
+                detail.Append(" StatusReady=").Append(status.Ready);
+                detail.Append(" Script=").Append(script ?? string.Empty);
+                if (!status.Ready)
+                {
+                    return new RuntimeComponentStatus
+                    {
+                        Name = Name,
+                        Ready = false,
+                        Reason = MapLuaUnavailableReason(status.Reason, "LuaExecuteHookUnavailable"),
+                        Detail = detail.Append(" StatusDetail=[").Append(status.Detail ?? string.Empty).Append("]").ToString()
+                    };
+                }
+
+                using (HookCommandChannel channel = new HookCommandChannel(processId))
+                {
+                    HookCommandResult result = channel.ExecuteLua(script, 7000);
+                    AppendCommandResult(detail, result);
+                    return new RuntimeComponentStatus
+                    {
+                        Name = Name,
+                        Ready = result.Ready,
+                        Reason = result.Ready ? "LuaExecuteSucceeded" : "LuaExecuteFailed",
+                        Detail = detail.ToString()
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                detail.Append(" LuaExecuteError=").Append(ex.GetType().Name).Append(":").Append(ex.Message);
+                return new RuntimeComponentStatus
+                {
+                    Name = Name,
+                    Ready = false,
+                    Reason = "LuaExecuteFailed",
+                    Detail = detail.ToString()
+                };
+            }
+        }
+
         public void Cleanup(int processId)
         {
         }
@@ -620,6 +544,61 @@ namespace SpellFire.RuntimeHost.Components
             detail.Append(" LuaBridgeReady=").Append(result.LuaBridgeReady);
             detail.Append(" LuaSmokeExecuted=").Append(result.LuaSmokeExecuted);
             detail.Append(" LuaSmokeLastStatus=0x").Append(result.LuaSmokeLastStatus.ToString("X"));
+            if (!string.IsNullOrWhiteSpace(result.TextPayload))
+            {
+                detail.Append(" TextPayload=").Append(result.TextPayload);
+            }
+        }
+
+        private RuntimeComponentStatus EnsureHookReadyForCommands(int processId, StringBuilder detail)
+        {
+            RuntimeComponentStatus boundary = EvaluateSafetyBoundary(processId);
+            detail.Append(" BoundaryReason=").Append(boundary.Reason);
+            detail.Append(" BoundaryReady=").Append(boundary.Ready);
+
+            if (string.Equals(boundary.Reason, "SafeBoundary_HookAlive", StringComparison.Ordinal))
+            {
+                return GetStatus(processId);
+            }
+
+            if (string.Equals(boundary.Reason, "SafeBoundary_CleanProcessNoHook", StringComparison.Ordinal) ||
+                string.Equals(boundary.Reason, "SafeBoundary_DirtyRecoverable_ReadyMissing", StringComparison.Ordinal))
+            {
+                RuntimeComponentStatus attach = AttemptAttach(processId);
+                detail.Append(" AttachReason=").Append(attach.Reason);
+                detail.Append(" AttachReady=").Append(attach.Ready);
+                if (!attach.Ready)
+                {
+                    return attach;
+                }
+
+                return GetStatus(processId);
+            }
+
+            return new RuntimeComponentStatus
+            {
+                Name = Name,
+                Ready = false,
+                Reason = boundary.Reason,
+                Detail = boundary.Detail
+            };
+        }
+
+        private static string MapLuaUnavailableReason(string statusReason, string fallbackReason)
+        {
+            if (string.IsNullOrWhiteSpace(statusReason))
+            {
+                return fallbackReason;
+            }
+
+            if (statusReason.StartsWith("SafeBoundary_", StringComparison.Ordinal) ||
+                statusReason.StartsWith("AttachAttempted_", StringComparison.Ordinal) ||
+                string.Equals(statusReason, "HookLoadedButReadySignalMissing_UnloadFailed", StringComparison.Ordinal))
+            {
+                return statusReason;
+            }
+
+            return fallbackReason;
         }
 
         private static bool TryIsWow64(Process process, out bool isWow64)
@@ -640,13 +619,12 @@ namespace SpellFire.RuntimeHost.Components
             }
         }
 
-        private static bool WaitForModuleState(IMemoryRobot robot, string moduleName, bool present, int timeoutMilliseconds)
+        private bool WaitForModuleState(int processId, string moduleName, bool present, int timeoutMilliseconds)
         {
             int remaining = Math.Max(0, timeoutMilliseconds);
             while (true)
             {
-                bool found = robot.Modules.GetModules()
-                    .Any(module => string.Equals(module.Name, moduleName, StringComparison.OrdinalIgnoreCase));
+                bool found = snapshotService.GetModules(processId, moduleName).MatchedModule != null;
                 if (found == present)
                 {
                     return found;

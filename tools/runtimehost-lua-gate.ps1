@@ -40,7 +40,7 @@ foreach ($root in $sourceRoots) {
     }
 }
 
-$hookSource = Join-Path $repoRoot "src\SpellFire.Hook\src\dllmain.cpp"
+$hookSource = Join-Path $repoRoot "src\Hook\src\dllmain.cpp"
 if (-not (Test-Path $hookSource)) {
     Write-Output "FAIL runtimehost-lua-gate Reason=`"HookSourceMissing`""
     exit 1

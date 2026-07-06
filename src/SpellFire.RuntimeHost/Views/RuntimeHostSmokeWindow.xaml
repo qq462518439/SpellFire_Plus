@@ -13,6 +13,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
@@ -83,6 +84,30 @@
         </WrapPanel>
 
         <Border Grid.Row="3"
+                Margin="0,0,0,10"
+                Padding="12"
+                Background="{StaticResource SecondaryBackgroundBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="txtLuaScript"
+                         Text="DEFAULT_CHAT_FRAME:AddMessage(&quot;SPELLFIRE_EXEC_OK&quot;);"
+                         VerticalContentAlignment="Center"
+                         Style="{StaticResource AppTextBoxStyle}"/>
+                <Button Grid.Column="1"
+                        Content="执行Lua"
+                        Margin="8,0,0,0"
+                        Style="{StaticResource GhostButtonStyle}"
+                        Click="BtnLuaExec_Click"/>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="4"
                 Background="{StaticResource SecondaryBackgroundBrush}"
                 BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="1"

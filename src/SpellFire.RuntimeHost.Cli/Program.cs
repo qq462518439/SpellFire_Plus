@@ -77,6 +77,12 @@ namespace SpellFire.RuntimeHost.Cli
                     return RunLuaSmoke(host, processId);
                 }
 
+                if (string.Equals(command, "lua-exec", StringComparison.OrdinalIgnoreCase))
+                {
+                    string script = args.Length > 2 ? string.Join(" ", args.Skip(2)) : string.Empty;
+                    return RunLuaExec(host, processId, script);
+                }
+
                 Console.WriteLine("FAIL unknown-command Command=\"" + command + "\"");
                 return 2;
             }
@@ -209,6 +215,20 @@ namespace SpellFire.RuntimeHost.Cli
 
             RuntimeComponentStatus result = hook.LuaSmoke(processId);
             Console.WriteLine("OK lua-smoke " + FormatComponent(result));
+            return result.Ready ? 0 : 1;
+        }
+
+        private static int RunLuaExec(IRuntimeHost host, int processId, string script)
+        {
+            SpellFireHookRuntimeComponent hook = GetHookComponent(host);
+            if (hook == null)
+            {
+                Console.WriteLine("FAIL lua-exec Reason=\"SpellFireHookUnavailable\"");
+                return 1;
+            }
+
+            RuntimeComponentStatus result = hook.ExecuteLua(processId, script);
+            Console.WriteLine("OK lua-exec " + FormatComponent(result));
             return result.Ready ? 0 : 1;
         }
 

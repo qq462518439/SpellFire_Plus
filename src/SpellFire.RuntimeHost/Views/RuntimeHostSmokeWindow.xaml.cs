@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Text;
 using System.Windows;
 using SpellFire.RuntimeHost.Abstractions;
@@ -136,6 +137,23 @@ namespace SpellFire.RuntimeHost.Views
             });
         }
 
+        private void BtnLuaExec_Click(object sender, RoutedEventArgs e)
+        {
+            RunSmoke("lua-exec", current =>
+            {
+                EnsureSession(current);
+                var concreteHook = GetHookComponent();
+                if (concreteHook == null)
+                {
+                    return "SpellFireHook unavailable";
+                }
+
+                RuntimeComponentStatus component = concreteHook.ExecuteLua(current, txtLuaScript.Text ?? string.Empty);
+                txtStatus.Text = DescribeStatus("执行Lua", component);
+                return FormatComponent(component);
+            });
+        }
+
         private void BtnRunAll_Click(object sender, RoutedEventArgs e)
         {
             RunSmoke("run-all", current =>
@@ -262,6 +280,12 @@ namespace SpellFire.RuntimeHost.Views
                     return actionName + "：已执行，主线程桥与 Lua 桥可用。";
                 case "LuaSmokeHookUnavailable":
                     return actionName + "：当前没有可用 Hook，需先 Attach。";
+                case "LuaExecuteSucceeded":
+                    return actionName + "：" + DescribeLuaExecuteSucceeded(status.Detail);
+                case "LuaExecuteHookUnavailable":
+                    return actionName + "：当前没有可用 Hook，无法执行脚本。";
+                case "LuaExecuteFailed":
+                    return actionName + "：脚本执行失败。";
                 case "SafeBoundary_DirtyRecoverable_ReadyMissing":
                     return actionName + "：检测到可恢复脏进程，Ready 信号缺失。";
                 case "SafeBoundary_DirtyRefused_HeartbeatMissing":
@@ -296,6 +320,22 @@ namespace SpellFire.RuntimeHost.Views
             }
 
             return null;
+        }
+
+        private static string DescribeLuaExecuteSucceeded(string detail)
+        {
+            if (string.IsNullOrWhiteSpace(detail))
+            {
+                return "脚本已执行，Lua 通道可用。";
+            }
+
+            Match match = Regex.Match(detail, "TextPayload=([^\\s\\\"]+)");
+            if (!match.Success)
+            {
+                return "脚本已执行，Lua 通道可用。";
+            }
+
+            return "脚本已执行，返回 " + match.Groups[1].Value + "。";
         }
 
         private void AppendLog(string line)

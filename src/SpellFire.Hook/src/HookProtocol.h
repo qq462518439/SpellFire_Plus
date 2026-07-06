@@ -11,7 +11,7 @@ namespace SpellFireHookProtocol
     constexpr wchar_t AckEventPrefix[] = L"Local\\SpellFireHookAck_";
     constexpr wchar_t MappingPrefix[] = L"Local\\SpellFireHookCommandBuffer_";
 
-    constexpr DWORD BufferSize = 256;
+    constexpr DWORD BufferSize = 1024;
     constexpr DWORD Magic = 0x53464850; // SFHP
     constexpr DWORD Version = 2;
     constexpr DWORD HeaderSize = 88;
@@ -22,6 +22,7 @@ namespace SpellFireHookProtocol
         constexpr LONG GetHookInfo = 2;
         constexpr LONG ReadSelfModule = 3;
         constexpr LONG LuaSmoke = 4;
+        constexpr LONG ExecuteLua = 5;
     }
 
     namespace Status
@@ -37,7 +38,13 @@ namespace SpellFireHookProtocol
         constexpr LONG Info = 0x494E464F; // INFO
         constexpr LONG PeRead = 0x50455244; // PERD
         constexpr LONG LuaSmoke = 0x4C554153; // LUAS
+        constexpr LONG ExecuteLua = 0x45584543; // EXEC
     }
+
+    constexpr DWORD ScriptBufferOffset = HeaderSize;
+    constexpr DWORD ScriptBufferLength = 512;
+    constexpr DWORD ResultTextOffset = ScriptBufferOffset + ScriptBufferLength;
+    constexpr DWORD ResultTextLength = BufferSize - ResultTextOffset;
 
     struct CommandBuffer
     {
