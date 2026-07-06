@@ -8,7 +8,27 @@ namespace SpellFire.WowRuntime.Movement
     {
         WowRuntimeResult<MovementStateSnapshot> GetMovementState();
 
+        WowRuntimeResult<ClickToMoveDiagnosticSnapshot> GetClickToMoveDiagnostic();
+
         WowRuntimeResult<MovementActionSnapshot> Jump();
+
+        WowRuntimeResult<MovementActionSnapshot> StartMoveForward();
+
+        WowRuntimeResult<MovementActionSnapshot> StartMoveBackward();
+
+        WowRuntimeResult<MovementActionSnapshot> StartStrafeLeft();
+
+        WowRuntimeResult<MovementActionSnapshot> StartStrafeRight();
+
+        WowRuntimeResult<MovementActionSnapshot> StartTurnLeft();
+
+        WowRuntimeResult<MovementActionSnapshot> StartTurnRight();
+
+        WowRuntimeResult<MovementActionSnapshot> StopTurn();
+
+        WowRuntimeResult<MovementActionSnapshot> FaceTo(Vector3 point);
+
+        WowRuntimeResult<MovementActionSnapshot> FaceObject(ulong guid);
 
         WowRuntimeResult<MovementActionSnapshot> Go(IReadOnlyList<Vector3> points);
 

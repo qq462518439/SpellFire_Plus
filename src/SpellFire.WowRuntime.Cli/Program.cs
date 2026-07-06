@@ -1,4 +1,6 @@
 using System;
+using System.Globalization;
+using System.Threading;
 using SpellFire.WowRuntime.Core;
 using SpellFire.WowRuntime.Infrastructure;
 using SpellFire.WowRuntime.Movement;
@@ -19,6 +21,10 @@ namespace SpellFire.WowRuntime.Cli
             ulong guid = ParseUlong(GetArg(args, "--guid", "0"), 0);
             int entry = ParseInt(GetArg(args, "--entry", "0"), 0);
             float radius = ParseFloat(GetArg(args, "--radius", "40"), 40);
+            float x = ParseFloat(GetArg(args, "--x", "0"), 0);
+            float y = ParseFloat(GetArg(args, "--y", "0"), 0);
+            float z = ParseFloat(GetArg(args, "--z", "0"), 0);
+            string action = GetArg(args, "--action", "forward");
             ObjectKind? kind = ParseKind(GetArg(args, "--kind", string.Empty));
 
             IWowRuntime runtime = new WowRuntimeFactory().Create(processId);
@@ -33,6 +39,8 @@ namespace SpellFire.WowRuntime.Cli
                     return PrintObjectResult(command, processId, runtime.ObjectManager.GetMe());
                 case "object-target":
                     return PrintObjectResult(command, processId, runtime.ObjectManager.GetTarget());
+                case "object-diagnostic":
+                    return PrintObjectDiagnosticResult(command, processId, runtime.ObjectManager.GetDiagnostic(scanLimit));
                 case "object-by-guid":
                     return PrintObjectResult(command, processId, runtime.ObjectManager.GetObjectByGuid(guid));
                 case "object-nearest":
@@ -65,14 +73,36 @@ namespace SpellFire.WowRuntime.Cli
                     return PrintScriptResult(command, processId, runtime.Scripts.Execute(GetArg(args, "--script", "DEFAULT_CHAT_FRAME:AddMessage(\"SPELLFIRE_WOWRUNTIME_SCRIPT_OK\");")));
                 case "movement-jump":
                     return PrintMovementResult(command, processId, runtime.Movement.Jump());
+                case "movement-forward-start":
+                    return PrintMovementResult(command, processId, runtime.Movement.StartMoveForward());
+                case "movement-backward-start":
+                    return PrintMovementResult(command, processId, runtime.Movement.StartMoveBackward());
+                case "movement-strafe-left-start":
+                    return PrintMovementResult(command, processId, runtime.Movement.StartStrafeLeft());
+                case "movement-strafe-right-start":
+                    return PrintMovementResult(command, processId, runtime.Movement.StartStrafeRight());
+                case "movement-turn-left-start":
+                    return PrintMovementResult(command, processId, runtime.Movement.StartTurnLeft());
+                case "movement-turn-right-start":
+                    return PrintMovementResult(command, processId, runtime.Movement.StartTurnRight());
+                case "movement-turn-stop":
+                    return PrintMovementResult(command, processId, runtime.Movement.StopTurn());
+                case "movement-face-to":
+                    return PrintMovementResult(command, processId, runtime.Movement.FaceTo(new Vector3(x, y, z)));
+                case "movement-face-object":
+                    return PrintMovementResult(command, processId, runtime.Movement.FaceObject(guid));
                 case "movement-stop":
                     return PrintMovementResult(command, processId, runtime.Movement.StopMove());
                 case "movement-stop-to":
                     return PrintMovementResult(command, processId, runtime.Movement.StopMoveTo());
                 case "movement-go":
                     return PrintMovementResult(command, processId, runtime.Movement.Go(Array.Empty<Vector3>()));
+                case "movement-ctm-diagnostic":
+                    return PrintClickToMoveDiagnosticResult(command, processId, runtime.Movement.GetClickToMoveDiagnostic());
                 case "movement-state":
                     return PrintMovementStateResult(command, processId, runtime.Movement.GetMovementState());
+                case "movement-speed-sample":
+                    return PrintMovementSpeedSampleResult(command, processId, runtime, action);
                 default:
                     Console.WriteLine("Result=Fail Command=\"{0}\" Reason=\"UnknownCommand\" Detail=\"Unsupported command.\" ProcessId={1}", Escape(command), processId);
                     return 2;
@@ -99,6 +129,46 @@ namespace SpellFire.WowRuntime.Cli
                 result.Status,
                 FormatObject(result.Value));
             return 0;
+        }
+
+        private static int PrintObjectDiagnosticResult(string command, int processId, WowRuntimeResult<ObjectManagerDiagnosticSnapshot> result)
+        {
+            if (!result.Success)
+            {
+                Console.WriteLine(
+                    "Result=Fail Command=\"{0}\" ProcessId={1} Ready=False Reason=\"{2}\" Detail=\"{3}\"",
+                    Escape(command),
+                    processId,
+                    result.Status,
+                    Escape(result.Detail));
+                return 1;
+            }
+
+            ObjectManagerDiagnosticSnapshot item = result.Value;
+            bool ready = item.ProcessExists && item.SessionOpen && item.AddressTableReady && item.ClientConnection != 0 && item.ObjectManager != 0 && item.FirstObject != 0;
+            Console.WriteLine(
+                "Result=OK Command=\"{0}\" ProcessId={1} Ready={2} Reason=\"{3}\" Stage=\"{4}\" Detail=\"{5}\" ProcessExists={6} SessionOpen={7} AddressTableReady={8} ClientConnection=0x{9:X} ObjectManager=0x{10:X} LocalGuid=0x{11:X} TargetGuid=0x{12:X} FirstObject=0x{13:X} Scanned={14} ReadableObjects={15} FailedObjects={16} FirstFailedObject=0x{17:X} FirstFailedStage=\"{18}\" FirstFailedDetail=\"{19}\"",
+                Escape(command),
+                processId,
+                ready,
+                result.Status,
+                Escape(item.Stage),
+                Escape(item.Detail),
+                item.ProcessExists,
+                item.SessionOpen,
+                item.AddressTableReady,
+                item.ClientConnection,
+                item.ObjectManager,
+                item.LocalGuid,
+                item.TargetGuid,
+                item.FirstObject,
+                item.Scanned,
+                item.ReadableObjects,
+                item.FailedObjects,
+                item.FirstFailedObject,
+                Escape(item.FirstFailedStage),
+                Escape(item.FirstFailedDetail));
+            return ready ? 0 : 1;
         }
 
         private static int PrintPlayerResult(string command, int processId, WowRuntimeResult<PlayerSnapshot> result)
@@ -201,26 +271,31 @@ namespace SpellFire.WowRuntime.Cli
             RuntimeWorldSnapshot snapshot = result.Value;
             ObjectManagerSnapshot objects = snapshot.Objects;
             Console.WriteLine(
-                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"{2}\" SnapshotUtc=\"{3:O}\" AgeMs={4} Phase={5} ObjectCount={6} PlayerCount={7} UnitCount={8} GameObjectCount={9} ItemCount={10} CorpseCount={11} Limit={12} Scanned={13} LocalGuid=0x{14:X} TargetGuid=0x{15:X} Player={16} Me={17} Target={18}",
+                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"{2}\" SnapshotUtc=\"{3:O}\" AgeMs={4} Phase={5} InWorld={6} HasPlayer={7} HasTarget={8} ObjectCount={9} PlayerCount={10} UnitCount={11} GameObjectCount={12} ItemCount={13} CorpseCount={14} Limit={15} Scanned={16} LocalGuid=0x{17:X} TargetGuid=0x{18:X} Player={19} Me={20} Target={21} NearestUnit={22} NearestGameObject={23}",
                 Escape(command),
                 processId,
                 result.Status,
                 snapshot.SnapshotUtc,
                 snapshot.AgeMs,
                 FormatWorldPhase(snapshot.Phase),
+                snapshot.InWorld,
+                snapshot.HasPlayer,
+                snapshot.HasTarget,
                 snapshot.ObjectCount,
-                objects == null ? 0 : objects.PlayerCount,
-                objects == null ? 0 : objects.UnitCount,
-                objects == null ? 0 : objects.GameObjectCount,
-                objects == null ? 0 : objects.ItemCount,
-                objects == null ? 0 : objects.CorpseCount,
+                snapshot.PlayerCount,
+                snapshot.UnitCount,
+                snapshot.GameObjectCount,
+                snapshot.ItemCount,
+                snapshot.CorpseCount,
                 objects == null ? 0 : objects.Limit,
                 objects == null ? 0 : objects.Scanned,
                 objects == null ? 0 : objects.LocalGuid,
                 objects == null ? 0 : objects.TargetGuid,
                 FormatPlayer(snapshot.Player),
                 FormatObject(snapshot.Me),
-                FormatObject(snapshot.Target));
+                FormatObject(snapshot.Target),
+                FormatObject(snapshot.NearestUnit),
+                FormatObject(snapshot.NearestGameObject));
             return 0;
         }
 
@@ -327,6 +402,178 @@ namespace SpellFire.WowRuntime.Cli
             return 0;
         }
 
+        private static int PrintClickToMoveDiagnosticResult(string command, int processId, WowRuntimeResult<ClickToMoveDiagnosticSnapshot> result)
+        {
+            if (!result.Success)
+            {
+                Console.WriteLine(
+                    "Result=Fail Command=\"{0}\" ProcessId={1} Ready=False Reason=\"{2}\" Detail=\"{3}\" Phase=Unknown Pos=Unavailable ClickToMoveTypeRaw=Unknown ClickToMoveState=Unknown SpeedKnown=False Speed=0",
+                    Escape(command),
+                    processId,
+                    result.Status,
+                    Escape(result.Detail));
+                return 1;
+            }
+
+            Console.WriteLine(
+                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"{2}\" Phase={3} InGame={4} LoadingOrConnecting={5} Pos=({6:0.###},{7:0.###},{8:0.###}) Rotation={9:0.###} InMovement={10} Flags={11} ClickToMoveTypeRaw={12} ClickToMoveState={13} SpeedKnown={14} Speed={15:0.###} Detail=\"{16}\"",
+                Escape(command),
+                processId,
+                result.Status,
+                result.Value.Phase.Phase,
+                result.Value.Phase.InGame,
+                result.Value.Phase.LoadingOrConnecting,
+                result.Value.Player.Position.X,
+                result.Value.Player.Position.Y,
+                result.Value.Player.Position.Z,
+                result.Value.Player.Position.Rotation,
+                result.Value.Movement.InMovement,
+                result.Value.Movement.Flags,
+                result.Value.Movement.ClickToMoveTypeRaw,
+                result.Value.Movement.ClickToMoveState,
+                result.Value.Movement.SpeedKnown,
+                result.Value.Movement.Speed,
+                Escape(result.Value.Detail));
+            return 0;
+        }
+
+        private static int PrintMovementSpeedSampleResult(string command, int processId, IWowRuntime runtime, string action)
+        {
+            WowRuntimeResult<PlayerSnapshot> before = runtime.World.GetPlayer();
+            bool hasPositionSamples = before.Success;
+
+            DateTime startedUtc = DateTime.UtcNow;
+            WowRuntimeResult<MovementActionSnapshot> started = StartMovementAction(runtime, action);
+            if (!started.Success)
+            {
+                Console.WriteLine(
+                    "Result=Fail Command=\"{0}\" ProcessId={1} Ready=False Reason=\"{2}\" Detail=\"{3}\" StartPos={4} EndPos=Unavailable Distance=0 DurationMs=0 ComputedSpeed=0 StateSpeedKnown=False StateSpeed=0 Moved=False PositionSample={5}",
+                    Escape(command),
+                    processId,
+                    started.Status,
+                    Escape(started.Detail),
+                    hasPositionSamples ? FormatPosition(before.Value.Position) : "Unavailable",
+                    hasPositionSamples ? "Ready" : Escape(before.Detail));
+                return 1;
+            }
+
+            WowRuntimeResult<PlayerSnapshot> after = null;
+            WowRuntimeResult<MovementStateSnapshot> state = null;
+            int durationMs = 0;
+            try
+            {
+                Thread.Sleep(1000);
+                durationMs = Math.Max(1, (int)(DateTime.UtcNow - startedUtc).TotalMilliseconds);
+                after = runtime.World.GetPlayer();
+                state = runtime.Movement.GetMovementState();
+            }
+            finally
+            {
+                runtime.Movement.StopMove();
+            }
+
+            hasPositionSamples = before.Success && after != null && after.Success;
+            double distance = 0;
+            double computedSpeed = 0;
+            if (hasPositionSamples)
+            {
+                float dx = after.Value.Position.X - before.Value.Position.X;
+                float dy = after.Value.Position.Y - before.Value.Position.Y;
+                float dz = after.Value.Position.Z - before.Value.Position.Z;
+                distance = Math.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+                computedSpeed = distance / (durationMs / 1000.0);
+            }
+
+            bool stateSpeedKnown = state != null && state.Success && state.Value.SpeedKnown;
+            float stateSpeed = stateSpeedKnown ? state.Value.Speed : 0;
+            bool moved = hasPositionSamples && distance > 0.3 && computedSpeed > 0.3;
+            string actionLabel = GetMovementActionLabel(started.Value.Action);
+            string detail = moved
+                ? actionLabel + " movement produced measurable displacement speed evidence."
+                : !hasPositionSamples && !stateSpeedKnown
+                    ? actionLabel + " movement ran, but neither position displacement nor SpeedMoving was readable."
+                    : actionLabel + " movement did not produce enough displacement speed evidence.";
+
+            Console.WriteLine(
+                "Result={0} Command=\"{1}\" ProcessId={2} Ready={3} Reason=\"{4}\" Detail=\"{5}\" Action=\"{6}\" StartPos={7} EndPos={8} Distance={9:0.###} DurationMs={10} ComputedSpeed={11:0.###} StateSpeedKnown={12} StateSpeed={13:0.###} Moved={14} StartActionReason=\"{15}\" PositionSample=\"{16}\" StateSample=\"{17}\"",
+                moved ? "OK" : "Fail",
+                Escape(command),
+                processId,
+                moved,
+                moved ? WowRuntimeStatus.Ready : WowRuntimeStatus.ReadFailed,
+                detail,
+                Escape(started.Value.Action),
+                before.Success ? FormatPosition(before.Value.Position) : "Unavailable",
+                after != null && after.Success ? FormatPosition(after.Value.Position) : "Unavailable",
+                distance,
+                durationMs,
+                computedSpeed,
+                stateSpeedKnown,
+                stateSpeed,
+                moved,
+                Escape(started.Value.RuntimeReason),
+                Escape(FormatSampleStatus(before, after)),
+                Escape(state == null ? "Unavailable" : state.Success ? state.Value.Detail : state.Detail));
+            return moved ? 0 : 1;
+        }
+
+        private static string GetMovementActionLabel(string action)
+        {
+            switch ((action ?? string.Empty).Trim().ToLowerInvariant())
+            {
+                case "forward-start":
+                    return "Forward";
+                case "backward-start":
+                    return "Backward";
+                case "strafe-left-start":
+                    return "Strafe-left";
+                case "strafe-right-start":
+                    return "Strafe-right";
+                default:
+                    return "Selected";
+            }
+        }
+
+        private static WowRuntimeResult<MovementActionSnapshot> StartMovementAction(IWowRuntime runtime, string action)
+        {
+            string normalized = (action ?? string.Empty).Trim().ToLowerInvariant();
+            switch (normalized)
+            {
+                case "":
+                case "forward":
+                    return runtime.Movement.StartMoveForward();
+                case "backward":
+                    return runtime.Movement.StartMoveBackward();
+                case "strafe-left":
+                    return runtime.Movement.StartStrafeLeft();
+                case "strafe-right":
+                    return runtime.Movement.StartStrafeRight();
+                default:
+                    return WowRuntimeResult<MovementActionSnapshot>.Fail(
+                        WowRuntimeStatus.InvalidArgument,
+                        "Unsupported movement speed sample action. Use forward, backward, strafe-left, or strafe-right.");
+            }
+        }
+
+        private static string FormatPosition(Vector3 value)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "({0:0.###},{1:0.###},{2:0.###})",
+                value.X,
+                value.Y,
+                value.Z);
+        }
+
+        private static string FormatSampleStatus(WowRuntimeResult<PlayerSnapshot> before, WowRuntimeResult<PlayerSnapshot> after)
+        {
+            string beforeStatus = before.Success ? "Before=Ready" : "Before=" + before.Status + ":" + before.Detail;
+            string afterStatus = after == null
+                ? "After=Unavailable"
+                : after.Success ? "After=Ready" : "After=" + after.Status + ":" + after.Detail;
+            return beforeStatus + " " + afterStatus;
+        }
+
         private static string FormatObject(WowObjectSnapshot item)
         {
             if (item == null)
@@ -407,6 +654,14 @@ namespace SpellFire.WowRuntime.Cli
 
         private static ulong ParseUlong(string value, ulong fallback)
         {
+            if (!string.IsNullOrWhiteSpace(value) && value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            {
+                ulong parsedHex;
+                return ulong.TryParse(value.Substring(2), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out parsedHex)
+                    ? parsedHex
+                    : fallback;
+            }
+
             ulong parsed;
             return ulong.TryParse(value, out parsed) ? parsed : fallback;
         }
