@@ -144,6 +144,14 @@ def main():
             ["Ready=True", 'Reason="Ready"', "ItemIndex=", "Dist="],
             ["--limit", "512", "--radius", "80", "--kind", "GameObject"],
         ) and passed
+        passed = run_case(
+            "live-object-nearest-gameobject",
+            "object-nearest",
+            wow_pid,
+            0,
+            ["Ready=True", 'Reason="Ready"', "Object=Guid=0x", "Kind=GameObject", "Dist="],
+            ["--radius", "80", "--kind", "GameObject"],
+        ) and passed
 
     if passed:
         print("OK wowruntime-objectmanager-matrix")
