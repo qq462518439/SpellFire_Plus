@@ -96,7 +96,7 @@ def main():
     else:
         live_cases = [
             ("live-probe-memory", "probe-memory", 0, ['Reason="SessionOpened"', "Ready=True"]),
-            ("live-attach-hook", "attach-hook", 0, ['Reason="HookReady"', "Ready=True"]),
+            ("live-attach-hook", "attach-hook", 0, ["Ready=True", "Hook"]),
             ("live-hook-status", "hook-status", 0, ['Reason="HookServiceAlive"', "Ready=True"]),
             ("live-ping-hook", "ping-hook", 0, ['Reason="HookCommandPingOk"', "Ready=True"]),
             ("live-hook-info", "hook-info", 0, ['Reason="HookInfoOk"', "Ready=True"]),

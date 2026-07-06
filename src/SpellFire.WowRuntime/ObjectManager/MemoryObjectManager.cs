@@ -67,6 +67,13 @@ namespace SpellFire.WowRuntime.ObjectManager
                 using (IMemoryRobot robot = memorySessions.Open(processId))
                 {
                     ObjectManagerSnapshot snapshot = ReadSnapshot(robot, table, limit);
+                    if (snapshot.LocalGuid == 0 && snapshot.Scanned == 0)
+                    {
+                        return WowRuntimeResult<ObjectManagerSnapshot>.Fail(
+                            WowRuntimeStatus.ObjectManagerUnavailable,
+                            "Object manager is not ready or the character is not in world.");
+                    }
+
                     return WowRuntimeResult<ObjectManagerSnapshot>.Ok(snapshot);
                 }
             }
@@ -123,7 +130,7 @@ namespace SpellFire.WowRuntime.ObjectManager
             }
 
             return WowRuntimeResult<ObjectManagerSnapshot>.Ok(
-                new ObjectManagerSnapshot(snapshot.Value.Me, snapshot.Value.Target, matches, limit, snapshot.Value.LocalGuid, snapshot.Value.TargetGuid, snapshot.Value.Scanned));
+                new ObjectManagerSnapshot(snapshot.Value.Me, snapshot.Value.Target, matches, limit, snapshot.Value.LocalGuid, snapshot.Value.TargetGuid, snapshot.Value.Scanned, snapshot.Value.SnapshotUtc));
         }
 
         public WowRuntimeResult<ObjectManagerSnapshot> GetObjectsByKind(ObjectKind kind, int limit)
@@ -173,7 +180,7 @@ namespace SpellFire.WowRuntime.ObjectManager
 
             matches.Sort(CompareDistanceThenGuid);
             return WowRuntimeResult<ObjectManagerSnapshot>.Ok(
-                new ObjectManagerSnapshot(snapshot.Value.Me, snapshot.Value.Target, matches, limit, snapshot.Value.LocalGuid, snapshot.Value.TargetGuid, snapshot.Value.Scanned));
+                new ObjectManagerSnapshot(snapshot.Value.Me, snapshot.Value.Target, matches, limit, snapshot.Value.LocalGuid, snapshot.Value.TargetGuid, snapshot.Value.Scanned, snapshot.Value.SnapshotUtc));
         }
 
         public WowRuntimeResult<ObjectManagerSnapshot> GetNearbyObjectsByKind(ObjectKind kind, Vector3 center, float radius, int limit)
@@ -235,14 +242,14 @@ namespace SpellFire.WowRuntime.ObjectManager
                 }
             }
 
-            return new ObjectManagerSnapshot(snapshot.Me, snapshot.Target, matches, limit, snapshot.LocalGuid, snapshot.TargetGuid, snapshot.Scanned);
+            return new ObjectManagerSnapshot(snapshot.Me, snapshot.Target, matches, limit, snapshot.LocalGuid, snapshot.TargetGuid, snapshot.Scanned, snapshot.SnapshotUtc);
         }
 
         private static ObjectManagerSnapshot SortByDistance(ObjectManagerSnapshot snapshot, int limit)
         {
             List<WowObjectSnapshot> sorted = new List<WowObjectSnapshot>(snapshot.Objects);
             sorted.Sort(CompareDistanceThenGuid);
-            return new ObjectManagerSnapshot(snapshot.Me, snapshot.Target, sorted, limit, snapshot.LocalGuid, snapshot.TargetGuid, snapshot.Scanned);
+            return new ObjectManagerSnapshot(snapshot.Me, snapshot.Target, sorted, limit, snapshot.LocalGuid, snapshot.TargetGuid, snapshot.Scanned, snapshot.SnapshotUtc);
         }
 
         private static int CompareDistanceThenGuid(WowObjectSnapshot left, WowObjectSnapshot right)

@@ -22,7 +22,8 @@ namespace SpellFire.RuntimeHost.Components
                 }
             }
 
-            return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SpellFire.Hook.dll");
+            string assemblyDirectory = Path.GetDirectoryName(typeof(HookPayloadPathResolver).Assembly.Location);
+            return Path.Combine(assemblyDirectory ?? AppDomain.CurrentDomain.BaseDirectory, "SpellFire.Hook.dll");
         }
 
         public static string CreateInjectableCopy(int processId)
@@ -49,8 +50,8 @@ namespace SpellFire.RuntimeHost.Components
             string assemblyDirectory = Path.GetDirectoryName(typeof(HookPayloadPathResolver).Assembly.Location);
             return new[]
             {
-                AppDomain.CurrentDomain.BaseDirectory,
                 assemblyDirectory,
+                AppDomain.CurrentDomain.BaseDirectory,
                 Directory.GetCurrentDirectory()
             };
         }

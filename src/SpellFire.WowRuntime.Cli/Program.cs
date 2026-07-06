@@ -1,7 +1,9 @@
 using System;
 using SpellFire.WowRuntime.Core;
 using SpellFire.WowRuntime.Infrastructure;
+using SpellFire.WowRuntime.Movement;
 using SpellFire.WowRuntime.ObjectManager;
+using SpellFire.WowRuntime.Scripting;
 using SpellFire.WowRuntime.World;
 
 namespace SpellFire.WowRuntime.Cli
@@ -22,6 +24,8 @@ namespace SpellFire.WowRuntime.Cli
 
             switch (command)
             {
+                case "world-player":
+                    return PrintPlayerResult(command, processId, runtime.World.GetPlayer());
                 case "object-me":
                     return PrintObjectResult(command, processId, runtime.ObjectManager.GetMe());
                 case "object-target":
@@ -50,6 +54,20 @@ namespace SpellFire.WowRuntime.Cli
                     return PrintSnapshotResult(command, processId, kind.HasValue
                         ? runtime.ObjectManager.GetObjectsByKind(kind.Value, limit)
                         : runtime.ObjectManager.GetObjects(limit));
+                case "world-snapshot":
+                    return PrintWorldSnapshotResult(command, processId, runtime.WorldSnapshots.Capture(limit));
+                case "script-smoke":
+                    return PrintScriptResult(command, processId, runtime.Scripts.LuaSmoke());
+                case "script-exec":
+                    return PrintScriptResult(command, processId, runtime.Scripts.Execute(GetArg(args, "--script", "DEFAULT_CHAT_FRAME:AddMessage(\"SPELLFIRE_WOWRUNTIME_SCRIPT_OK\");")));
+                case "movement-jump":
+                    return PrintMovementResult(command, processId, runtime.Movement.Jump());
+                case "movement-stop":
+                    return PrintMovementResult(command, processId, runtime.Movement.StopMove());
+                case "movement-stop-to":
+                    return PrintMovementResult(command, processId, runtime.Movement.StopMoveTo());
+                case "movement-go":
+                    return PrintMovementResult(command, processId, runtime.Movement.Go(Array.Empty<Vector3>()));
                 default:
                     Console.WriteLine("Result=Fail Command=\"{0}\" Reason=\"UnknownCommand\" Detail=\"Unsupported command.\" ProcessId={1}", Escape(command), processId);
                     return 2;
@@ -78,6 +96,33 @@ namespace SpellFire.WowRuntime.Cli
             return 0;
         }
 
+        private static int PrintPlayerResult(string command, int processId, WowRuntimeResult<PlayerSnapshot> result)
+        {
+            if (!result.Success)
+            {
+                Console.WriteLine(
+                    "Result=Fail Command=\"{0}\" ProcessId={1} Ready=False Reason=\"{2}\" Detail=\"{3}\" Player=Unavailable",
+                    Escape(command),
+                    processId,
+                    result.Status,
+                    Escape(result.Detail));
+                return 1;
+            }
+
+            Console.WriteLine(
+                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"{2}\" MapId={3} Pos=({4:0.###},{5:0.###},{6:0.###}) Rotation={7:0.###} Movement={8}",
+                Escape(command),
+                processId,
+                result.Status,
+                result.Value.MapId,
+                result.Value.Position.X,
+                result.Value.Position.Y,
+                result.Value.Position.Z,
+                result.Value.Position.Rotation,
+                result.Value.Movement);
+            return 0;
+        }
+
         private static int PrintSnapshotResult(string command, int processId, WowRuntimeResult<ObjectManagerSnapshot> result)
         {
             return PrintSnapshotResult(command, processId, result, false);
@@ -97,11 +142,18 @@ namespace SpellFire.WowRuntime.Cli
             }
 
             Console.WriteLine(
-                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"{2}\" ObjectCount={3} Limit={4} Scanned={5} LocalGuid=0x{6:X} TargetGuid=0x{7:X} Me={8} Target={9}",
+                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"{2}\" SnapshotUtc=\"{3:O}\" AgeMs={4} ObjectCount={5} PlayerCount={6} UnitCount={7} GameObjectCount={8} ItemCount={9} CorpseCount={10} Limit={11} Scanned={12} LocalGuid=0x{13:X} TargetGuid=0x{14:X} Me={15} Target={16}",
                 Escape(command),
                 processId,
                 result.Status,
+                result.Value.SnapshotUtc,
+                result.Value.AgeMs,
                 result.Value.Count,
+                result.Value.PlayerCount,
+                result.Value.UnitCount,
+                result.Value.GameObjectCount,
+                result.Value.ItemCount,
+                result.Value.CorpseCount,
                 result.Value.Limit,
                 result.Value.Scanned,
                 result.Value.LocalGuid,
@@ -120,6 +172,91 @@ namespace SpellFire.WowRuntime.Cli
                 }
             }
 
+            return 0;
+        }
+
+        private static int PrintWorldSnapshotResult(string command, int processId, WowRuntimeResult<RuntimeWorldSnapshot> result)
+        {
+            if (!result.Success)
+            {
+                Console.WriteLine(
+                    "Result=Fail Command=\"{0}\" ProcessId={1} Ready=False Reason=\"{2}\" Detail=\"{3}\" ObjectCount=0 PlayerCount=0 UnitCount=0 GameObjectCount=0 ItemCount=0 CorpseCount=0 Limit=0 Scanned=0 LocalGuid=0x0 TargetGuid=0x0 Me=Unavailable Target=Unavailable",
+                    Escape(command),
+                    processId,
+                    result.Status,
+                    Escape(result.Detail));
+                return 1;
+            }
+
+            RuntimeWorldSnapshot snapshot = result.Value;
+            ObjectManagerSnapshot objects = snapshot.Objects;
+            Console.WriteLine(
+                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"{2}\" SnapshotUtc=\"{3:O}\" AgeMs={4} ObjectCount={5} PlayerCount={6} UnitCount={7} GameObjectCount={8} ItemCount={9} CorpseCount={10} Limit={11} Scanned={12} LocalGuid=0x{13:X} TargetGuid=0x{14:X} Me={15} Target={16}",
+                Escape(command),
+                processId,
+                result.Status,
+                snapshot.SnapshotUtc,
+                snapshot.AgeMs,
+                snapshot.ObjectCount,
+                objects == null ? 0 : objects.PlayerCount,
+                objects == null ? 0 : objects.UnitCount,
+                objects == null ? 0 : objects.GameObjectCount,
+                objects == null ? 0 : objects.ItemCount,
+                objects == null ? 0 : objects.CorpseCount,
+                objects == null ? 0 : objects.Limit,
+                objects == null ? 0 : objects.Scanned,
+                objects == null ? 0 : objects.LocalGuid,
+                objects == null ? 0 : objects.TargetGuid,
+                FormatObject(snapshot.Me),
+                FormatObject(snapshot.Target));
+            return 0;
+        }
+
+        private static int PrintScriptResult(string command, int processId, WowRuntimeResult<ScriptExecutionSnapshot> result)
+        {
+            if (!result.Success)
+            {
+                Console.WriteLine(
+                    "Result=Fail Command=\"{0}\" ProcessId={1} Ready=False Reason=\"{2}\" Detail=\"{3}\" Operation=\"\" RuntimeReason=\"\"",
+                    Escape(command),
+                    processId,
+                    result.Status,
+                    Escape(result.Detail));
+                return 1;
+            }
+
+            Console.WriteLine(
+                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"{2}\" Operation=\"{3}\" RuntimeReason=\"{4}\" Detail=\"{5}\"",
+                Escape(command),
+                processId,
+                result.Status,
+                Escape(result.Value.Operation),
+                Escape(result.Value.Reason),
+                Escape(result.Value.Detail));
+            return 0;
+        }
+
+        private static int PrintMovementResult(string command, int processId, WowRuntimeResult<MovementActionSnapshot> result)
+        {
+            if (!result.Success)
+            {
+                Console.WriteLine(
+                    "Result=Fail Command=\"{0}\" ProcessId={1} Ready=False Reason=\"{2}\" Detail=\"{3}\" Action=\"\" RuntimeReason=\"\"",
+                    Escape(command),
+                    processId,
+                    result.Status,
+                    Escape(result.Detail));
+                return 1;
+            }
+
+            Console.WriteLine(
+                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"{2}\" Action=\"{3}\" RuntimeReason=\"{4}\" Detail=\"{5}\"",
+                Escape(command),
+                processId,
+                result.Status,
+                Escape(result.Value.Action),
+                Escape(result.Value.RuntimeReason),
+                Escape(result.Value.Detail));
             return 0;
         }
 

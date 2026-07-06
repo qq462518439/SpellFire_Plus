@@ -22,6 +22,11 @@ namespace SpellFire.WowRuntime.Infrastructure
             get { return runtime.World; }
         }
 
+        public IWorldSnapshotService WorldSnapshots
+        {
+            get { return runtime.WorldSnapshots; }
+        }
+
         public IObjectManager ObjectManager
         {
             get { return runtime.ObjectManager; }

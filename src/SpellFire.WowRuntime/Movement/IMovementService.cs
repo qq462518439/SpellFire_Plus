@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using SpellFire.WowRuntime.Core;
 using SpellFire.WowRuntime.World;
 
 namespace SpellFire.WowRuntime.Movement
@@ -7,10 +8,12 @@ namespace SpellFire.WowRuntime.Movement
     {
         bool InMovement { get; }
 
-        void Go(IReadOnlyList<Vector3> points);
+        WowRuntimeResult<MovementActionSnapshot> Jump();
 
-        void StopMove();
+        WowRuntimeResult<MovementActionSnapshot> Go(IReadOnlyList<Vector3> points);
 
-        void StopMoveTo();
+        WowRuntimeResult<MovementActionSnapshot> StopMove();
+
+        WowRuntimeResult<MovementActionSnapshot> StopMoveTo();
     }
 }

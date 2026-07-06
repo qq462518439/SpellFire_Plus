@@ -1,9 +1,11 @@
+using SpellFire.WowRuntime.Core;
+
 namespace SpellFire.WowRuntime.Scripting
 {
     public interface IScriptService
     {
-        bool Execute(string script);
+        WowRuntimeResult<ScriptExecutionSnapshot> LuaSmoke();
 
-        string GetValue(string expression);
+        WowRuntimeResult<ScriptExecutionSnapshot> Execute(string script);
     }
 }

@@ -17,16 +17,19 @@
    - 实现 `Me / Target / ObjectList / ObjectDictionary / GetByGuid / GetByEntry / NearbyObjects`。
    - 输出稳定 DTO，不引入导航、战斗、产品逻辑。
    - 这是 `robotManager` 的第一前置条件。
+   - 当前状态：已实装并通过 `tools/wowruntime-objectmanager-matrix.py` 验证。
 
 2. `Scripting 门面`
    - 把现有 LuaSmoke/LuaExec 从 Runtime 能力包装成 WowRuntime 语义接口。
    - 不追求复杂返回值系统，先保证执行命令、游戏内可见反馈、错误语义稳定。
    - 这是 `robotManager` 控制产品脚本能力的第二前置条件。
+   - 当前状态：已实装并通过 `tools/wowruntime-scripting-matrix.py` 验证。
 
 3. `Movement 最小动作层`
    - 只做可验证动作：Jump、Stop、Face/Move 基础能力。
    - 不做导航，不做路径规划。
    - 这是 `robotManager` 调度行为的第三前置条件。
+   - 当前状态：已实装 Jump / Stop / StopTo；`Go` 明确返回未实现，避免伪导航。通过 `tools/wowruntime-movement-matrix.py` 验证。
 
 4. `RobotManager 最小成品`
    - 建立 `IRobotManager`、`IProduct`、`ProductContext`、`PulseLoop`、`Start/Pause/Stop`。
@@ -39,19 +42,18 @@
    - 不承诺直接跑官方产品，除非 Hook/Lua/Object/Movement 全部验证达标。
 
 ## Immediate Next Mainline
-下一刀仍然是 `SpellFire.WowRuntime.ObjectManager 只读地基`，但实现时必须按未来 `robotManager` 需要的接口设计：
+下一刀是 `WowRuntime 三部门收口 -> RobotManager 最小成品前置`。当前不继续扩 ObjectManager 字段，也不进入导航；先把 `ObjectManager / Scripting / Movement` 的验收入口和边界固定，确保 `RobotManager` 只能消费 `WowRuntime`，不能直连 Hook / MemoryRobot。
 
-- `IObjectManager.Me`
-- `IObjectManager.Target`
-- `IObjectManager.Objects`
-- `IObjectManager.GetObjectByGuid(ulong guid)`
-- `IObjectManager.GetObjectsByEntry(int entry)`
-- `IObjectManager.GetNearbyObjects(Vector3 center, float radius)`
-- `ObjectManagerSnapshot` 作为一次读取结果
-- 不做 Pulsator，不做 Product，不做导航
+- 固定 `tools/wowruntime-matrix.py` 作为 WowRuntime 三部门聚合验收入口。
+- 保持 `ObjectManager` 只读，不做 Pulsator。
+- 保持 `Scripting` 只做 LuaSmoke / Execute，不做复杂 return 值系统。
+- 保持 `Movement` 只做 Jump / Stop / StopTo；`Go` 在导航专项前必须继续拒绝。
+- 下一阶段才建立 `RobotManager` 最小 `PulseLoop`，并只允许通过 `WowRuntime` 访问对象、Lua、运动。
 
 ## Acceptance Criteria
 - ObjectManager 能通过 CLI/脚本稳定读到本地玩家、目标、对象计数、附近对象。
+- Scripting 能通过 CLI/脚本执行 Lua 冒烟和聊天框可见 Lua。
+- Movement 能通过 CLI/脚本执行 Jump / Stop / StopTo，且 `Go` 明确拒绝。
 - 失败原因必须可区分：Hook 未就绪、进程不存在、内存读取失败、对象不存在、地址模型缺失。
 - `MemoryRobot`、`RuntimeHost`、`RuntimeFacade` 现有矩阵不退化。
 - 不新增假的 Product/Quest/Gather/Combat 占位。

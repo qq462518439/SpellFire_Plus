@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SpellFire.MemoryRobot\SpellFire.MemoryRobot.csproj" />
+    <ProjectReference Include="..\SpellFire.Runtime\SpellFire.Runtime.csproj" />
     <ProjectReference Include="..\SpellFire.RuntimeHost\SpellFire.RuntimeHost.csproj" />
   </ItemGroup>
 </Project>

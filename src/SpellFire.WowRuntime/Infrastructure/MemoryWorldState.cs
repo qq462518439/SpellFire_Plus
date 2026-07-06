@@ -1,6 +1,7 @@
 using System;
 using SpellFire.MemoryRobot.Abstractions;
 using SpellFire.WowRuntime.Core;
+using SpellFire.WowRuntime.ObjectManager;
 using SpellFire.WowRuntime.World;
 
 namespace SpellFire.WowRuntime.Infrastructure
@@ -10,20 +11,35 @@ namespace SpellFire.WowRuntime.Infrastructure
         private readonly int processId;
         private readonly IMemorySessionFactory memorySessions;
         private readonly IWorldAddressProvider addresses;
+        private readonly IObjectManager objectManager;
 
         public MemoryWorldState(int processId, IMemorySessionFactory memorySessions, IWorldAddressProvider addresses)
+            : this(processId, memorySessions, addresses, null)
+        {
+        }
+
+        public MemoryWorldState(int processId, IMemorySessionFactory memorySessions, IWorldAddressProvider addresses, IObjectManager objectManager)
         {
             this.processId = processId;
             this.memorySessions = memorySessions;
             this.addresses = addresses;
+            this.objectManager = objectManager;
         }
 
         public WowRuntimeResult<PlayerSnapshot> GetPlayer()
         {
+            WowRuntimeResult<PlayerSnapshot> objectPlayer = TryGetPlayerFromObjectManager();
+            if (objectPlayer.Success)
+            {
+                return objectPlayer;
+            }
+
             WorldAddressTable table = addresses.GetAddressTable(processId);
             if (table == null || !table.HasPlayer)
             {
-                return WowRuntimeResult<PlayerSnapshot>.Fail(WowRuntimeStatus.AddressTableMissing, "World address table is not available.");
+                return objectPlayer.Status == WowRuntimeStatus.NotStarted
+                    ? WowRuntimeResult<PlayerSnapshot>.Fail(WowRuntimeStatus.AddressTableMissing, "World address table is not available.")
+                    : objectPlayer;
             }
 
             try
@@ -50,6 +66,22 @@ namespace SpellFire.WowRuntime.Infrastructure
         private static MovementFlags ToMovementFlags(int raw)
         {
             return raw == 0 ? MovementFlags.None : MovementFlags.Moving;
+        }
+
+        private WowRuntimeResult<PlayerSnapshot> TryGetPlayerFromObjectManager()
+        {
+            if (objectManager == null)
+            {
+                return WowRuntimeResult<PlayerSnapshot>.Fail(WowRuntimeStatus.NotStarted, "Object manager fallback is not configured.");
+            }
+
+            WowRuntimeResult<WowObjectSnapshot> me = objectManager.GetMe();
+            if (!me.Success)
+            {
+                return WowRuntimeResult<PlayerSnapshot>.Fail(me.Status, me.Detail);
+            }
+
+            return WowRuntimeResult<PlayerSnapshot>.Ok(new PlayerSnapshot(0, me.Value.Position, MovementFlags.None));
         }
     }
 }

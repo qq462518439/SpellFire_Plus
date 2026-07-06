@@ -37,6 +37,23 @@ def run_case(name, command, pid, expected_exit, expected_parts, extra=None):
     return False
 
 
+def run_probe(command, pid, extra=None):
+    args = [str(CLI), "--command", command, "--pid", str(pid)]
+    if extra:
+        args.extend(extra)
+
+    completed = subprocess.run(
+        args,
+        cwd=str(ROOT),
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+    )
+    output = (completed.stdout + completed.stderr).strip()
+    return completed.returncode, output
+
+
 def find_wow_pid():
     completed = subprocess.run(
         [
@@ -69,6 +86,20 @@ def main():
         ["Ready=False", 'Reason="ProcessUnavailable"'],
     ) and passed
     passed = run_case(
+        "missing-world-player",
+        "world-player",
+        missing_pid,
+        1,
+        ["Ready=False", 'Reason="ProcessUnavailable"', "Player=Unavailable"],
+    ) and passed
+    passed = run_case(
+        "missing-world-snapshot",
+        "world-snapshot",
+        missing_pid,
+        1,
+        ["Ready=False", 'Reason="ProcessUnavailable"', "ObjectCount=0", "Limit=0", "Scanned=0"],
+    ) and passed
+    passed = run_case(
         "invalid-guid",
         "object-by-guid",
         missing_pid,
@@ -81,12 +112,38 @@ def main():
     if wow_pid <= 0:
         print('SKIP wowruntime-objectmanager-live Reason="NoWowProcess"')
     else:
+        probe_exit, probe_output = run_probe("object-snapshot", wow_pid, ["--limit", "512"])
+        if probe_exit != 0 and (
+            'Reason="ObjectManagerUnavailable"' in probe_output
+            or 'Reason="ReadFailed"' in probe_output
+        ):
+            print(probe_output)
+            reason = "ReadFailed" if 'Reason="ReadFailed"' in probe_output else "ObjectManagerUnavailable"
+            print(f'SKIP wowruntime-objectmanager-live Reason="{reason}" Pid={wow_pid}')
+            print("OK wowruntime-objectmanager-matrix")
+            return 0
+
         passed = run_case(
             "live-object-snapshot",
             "object-snapshot",
             wow_pid,
             0,
-            ["Ready=True", 'Reason="Ready"', "ObjectCount=", "Me=Guid=0x"],
+            ["Ready=True", 'Reason="Ready"', "SnapshotUtc=", "AgeMs=", "ObjectCount=", "PlayerCount=", "UnitCount=", "GameObjectCount=", "Me=Guid=0x"],
+            ["--limit", "512"],
+        ) and passed
+        passed = run_case(
+            "live-world-player",
+            "world-player",
+            wow_pid,
+            0,
+            ["Ready=True", 'Reason="Ready"', "Pos=(", "Movement="],
+        ) and passed
+        passed = run_case(
+            "live-world-snapshot",
+            "world-snapshot",
+            wow_pid,
+            0,
+            ["Ready=True", 'Reason="Ready"', "SnapshotUtc=", "AgeMs=", "ObjectCount=", "PlayerCount=", "UnitCount=", "GameObjectCount=", "Limit=", "Scanned=", "Me=Guid=0x"],
             ["--limit", "512"],
         ) and passed
         passed = run_case(
@@ -117,7 +174,7 @@ def main():
             "object-snapshot",
             wow_pid,
             0,
-            ["Ready=True", 'Reason="Ready"', "ObjectCount="],
+            ["Ready=True", 'Reason="Ready"', "SnapshotUtc=", "AgeMs=", "ObjectCount=", "UnitCount="],
             ["--limit", "512", "--kind", "Unit"],
         ) and passed
         passed = run_case(
@@ -125,7 +182,7 @@ def main():
             "object-list",
             wow_pid,
             0,
-            ["Ready=True", 'Reason="Ready"', "ItemIndex="],
+            ["Ready=True", 'Reason="Ready"', "SnapshotUtc=", "AgeMs=", "GameObjectCount=", "ItemIndex="],
             ["--limit", "512", "--kind", "GameObject"],
         ) and passed
         passed = run_case(

@@ -12,6 +12,7 @@ namespace SpellFire.WowRuntime.Core
         public WowRuntime(
             int processId,
             IWorldState world,
+            IWorldSnapshotService worldSnapshots,
             IObjectManager objectManager,
             IMovementService movement,
             INavigationService navigation,
@@ -20,6 +21,7 @@ namespace SpellFire.WowRuntime.Core
         {
             ProcessId = processId;
             World = world;
+            WorldSnapshots = worldSnapshots;
             ObjectManager = objectManager;
             Movement = movement;
             Navigation = navigation;
@@ -30,6 +32,8 @@ namespace SpellFire.WowRuntime.Core
         public int ProcessId { get; }
 
         public IWorldState World { get; }
+
+        public IWorldSnapshotService WorldSnapshots { get; }
 
         public IObjectManager ObjectManager { get; }
 

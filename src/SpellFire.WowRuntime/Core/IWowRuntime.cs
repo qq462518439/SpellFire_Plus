@@ -13,6 +13,8 @@ namespace SpellFire.WowRuntime.Core
 
         IWorldState World { get; }
 
+        IWorldSnapshotService WorldSnapshots { get; }
+
         IObjectManager ObjectManager { get; }
 
         IMovementService Movement { get; }

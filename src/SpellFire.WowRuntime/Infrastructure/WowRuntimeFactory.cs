@@ -1,5 +1,7 @@
 using SpellFire.MemoryRobot.Abstractions;
 using SpellFire.MemoryRobot.Process;
+using SpellFire.Runtime.Bootstrap;
+using SpellFire.Runtime.Contracts;
 using SpellFire.WowRuntime.Bot;
 using SpellFire.WowRuntime.Core;
 using SpellFire.WowRuntime.Movement;
@@ -30,14 +32,18 @@ namespace SpellFire.WowRuntime.Infrastructure
         {
             BotController bot = new BotController();
             bot.AddState(new IdleBotState());
+            MemoryObjectManager objectManager = new MemoryObjectManager(processId, memorySessions, addresses);
+            IRuntimeFacade runtimeFacade = RuntimeCompositionRoot.CreateDefaultFacade();
+            RuntimeFacadeScriptService scripts = new RuntimeFacadeScriptService(processId, runtimeFacade);
 
             return new Core.WowRuntime(
                 processId,
-                new MemoryWorldState(processId, memorySessions, addresses),
-                new MemoryObjectManager(processId, memorySessions, addresses),
-                new UnavailableMovementService(),
+                new MemoryWorldState(processId, memorySessions, addresses, objectManager),
+                new ObjectManagerWorldSnapshotService(processId, objectManager),
+                objectManager,
+                new ScriptMovementService(scripts),
                 new UnavailableNavigationService(),
-                new UnavailableScriptService(),
+                scripts,
                 bot);
         }
     }

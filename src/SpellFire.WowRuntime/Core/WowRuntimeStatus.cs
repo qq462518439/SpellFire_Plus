@@ -9,6 +9,7 @@ namespace SpellFire.WowRuntime.Core
         FeatureUnavailable = 4,
         ReadFailed = 5,
         InvalidArgument = 6,
-        ObjectNotFound = 7
+        ObjectNotFound = 7,
+        ObjectManagerUnavailable = 8
     }
 }

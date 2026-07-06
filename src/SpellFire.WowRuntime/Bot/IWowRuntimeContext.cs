@@ -11,6 +11,8 @@ namespace SpellFire.WowRuntime.Bot
     {
         IWorldState World { get; }
 
+        IWorldSnapshotService WorldSnapshots { get; }
+
         IObjectManager ObjectManager { get; }
 
         IMovementService Movement { get; }
