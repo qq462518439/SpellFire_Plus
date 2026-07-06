@@ -9,15 +9,17 @@ namespace SpellFire.WowRuntime.Infrastructure
     public sealed class ScriptMovementService : IMovementService
     {
         private readonly IScriptService scripts;
+        private readonly IWorldState world;
 
-        public ScriptMovementService(IScriptService scripts)
+        public ScriptMovementService(IScriptService scripts, IWorldState world)
         {
             this.scripts = scripts;
+            this.world = world;
         }
 
-        public bool InMovement
+        public WowRuntimeResult<MovementStateSnapshot> GetMovementState()
         {
-            get { return false; }
+            return world.GetMovementState();
         }
 
         public WowRuntimeResult<MovementActionSnapshot> Jump()

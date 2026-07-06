@@ -15,6 +15,7 @@ namespace SpellFire.WowRuntime.Cli
             string command = GetArg(args, "--command", "object-snapshot");
             int processId = ParseInt(GetArg(args, "--pid", "0"), 0);
             int limit = ParseInt(GetArg(args, "--limit", "64"), 64);
+            int scanLimit = ParseInt(GetArg(args, "--scan-limit", "512"), 512);
             ulong guid = ParseUlong(GetArg(args, "--guid", "0"), 0);
             int entry = ParseInt(GetArg(args, "--entry", "0"), 0);
             float radius = ParseFloat(GetArg(args, "--radius", "40"), 40);
@@ -24,6 +25,8 @@ namespace SpellFire.WowRuntime.Cli
 
             switch (command)
             {
+                case "world-phase":
+                    return PrintWorldPhaseResult(command, processId, runtime.World.GetPhase());
                 case "world-player":
                     return PrintPlayerResult(command, processId, runtime.World.GetPlayer());
                 case "object-me":
@@ -37,23 +40,23 @@ namespace SpellFire.WowRuntime.Cli
                         ? runtime.ObjectManager.GetNearestObjectByKind(kind.Value, new Vector3(0, 0, 0), radius)
                         : runtime.ObjectManager.GetNearestObject(new Vector3(0, 0, 0), radius));
                 case "object-by-entry":
-                    return PrintSnapshotResult(command, processId, runtime.ObjectManager.GetObjectsByEntry(entry, limit));
+                    return PrintSnapshotResult(command, processId, runtime.ObjectManager.GetObjectsByEntry(entry, limit, scanLimit));
                 case "object-nearby":
                     return PrintSnapshotResult(command, processId, kind.HasValue
-                        ? runtime.ObjectManager.GetNearbyObjectsByKind(kind.Value, new Vector3(0, 0, 0), radius, limit)
-                        : runtime.ObjectManager.GetNearbyObjects(new Vector3(0, 0, 0), radius, limit));
+                        ? runtime.ObjectManager.GetNearbyObjectsByKind(kind.Value, new Vector3(0, 0, 0), radius, limit, scanLimit)
+                        : runtime.ObjectManager.GetNearbyObjects(new Vector3(0, 0, 0), radius, limit, scanLimit));
                 case "object-nearby-list":
                     return PrintSnapshotResult(command, processId, kind.HasValue
-                        ? runtime.ObjectManager.GetNearbyObjectsByKind(kind.Value, new Vector3(0, 0, 0), radius, limit)
-                        : runtime.ObjectManager.GetNearbyObjects(new Vector3(0, 0, 0), radius, limit), true);
+                        ? runtime.ObjectManager.GetNearbyObjectsByKind(kind.Value, new Vector3(0, 0, 0), radius, limit, scanLimit)
+                        : runtime.ObjectManager.GetNearbyObjects(new Vector3(0, 0, 0), radius, limit, scanLimit), true);
                 case "object-list":
                     return PrintSnapshotResult(command, processId, kind.HasValue
-                        ? runtime.ObjectManager.GetObjectsByKind(kind.Value, limit)
-                        : runtime.ObjectManager.GetObjects(limit), true);
+                        ? runtime.ObjectManager.GetObjectsByKind(kind.Value, limit, scanLimit)
+                        : runtime.ObjectManager.GetObjects(limit, scanLimit), true);
                 case "object-snapshot":
                     return PrintSnapshotResult(command, processId, kind.HasValue
-                        ? runtime.ObjectManager.GetObjectsByKind(kind.Value, limit)
-                        : runtime.ObjectManager.GetObjects(limit));
+                        ? runtime.ObjectManager.GetObjectsByKind(kind.Value, limit, scanLimit)
+                        : runtime.ObjectManager.GetObjects(limit, scanLimit));
                 case "world-snapshot":
                     return PrintWorldSnapshotResult(command, processId, runtime.WorldSnapshots.Capture(limit));
                 case "script-smoke":
@@ -68,6 +71,8 @@ namespace SpellFire.WowRuntime.Cli
                     return PrintMovementResult(command, processId, runtime.Movement.StopMoveTo());
                 case "movement-go":
                     return PrintMovementResult(command, processId, runtime.Movement.Go(Array.Empty<Vector3>()));
+                case "movement-state":
+                    return PrintMovementStateResult(command, processId, runtime.Movement.GetMovementState());
                 default:
                     Console.WriteLine("Result=Fail Command=\"{0}\" Reason=\"UnknownCommand\" Detail=\"Unsupported command.\" ProcessId={1}", Escape(command), processId);
                     return 2;
@@ -110,16 +115,21 @@ namespace SpellFire.WowRuntime.Cli
             }
 
             Console.WriteLine(
-                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"{2}\" MapId={3} Pos=({4:0.###},{5:0.###},{6:0.###}) Rotation={7:0.###} Movement={8}",
+                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"{2}\" MapId={3} MapIdKnown={4} ContinentId={5} ContinentName=\"{6}\" Pos=({7:0.###},{8:0.###},{9:0.###}) Rotation={10:0.###} Movement={11} ClickToMoveTypeRaw={12} ClickToMoveState={13}",
                 Escape(command),
                 processId,
                 result.Status,
                 result.Value.MapId,
+                result.Value.MapIdKnown,
+                result.Value.ContinentId,
+                Escape(result.Value.ContinentName),
                 result.Value.Position.X,
                 result.Value.Position.Y,
                 result.Value.Position.Z,
                 result.Value.Position.Rotation,
-                result.Value.Movement);
+                result.Value.Movement,
+                result.Value.ClickToMoveTypeRaw,
+                result.Value.ClickToMoveState);
             return 0;
         }
 
@@ -180,23 +190,24 @@ namespace SpellFire.WowRuntime.Cli
             if (!result.Success)
             {
                 Console.WriteLine(
-                    "Result=Fail Command=\"{0}\" ProcessId={1} Ready=False Reason=\"{2}\" Detail=\"{3}\" ObjectCount=0 PlayerCount=0 UnitCount=0 GameObjectCount=0 ItemCount=0 CorpseCount=0 Limit=0 Scanned=0 LocalGuid=0x0 TargetGuid=0x0 Me=Unavailable Target=Unavailable",
+                "Result=Fail Command=\"{0}\" ProcessId={1} Ready=False Reason=\"{2}\" Detail=\"{3}\" Phase=Unavailable ObjectCount=0 PlayerCount=0 UnitCount=0 GameObjectCount=0 ItemCount=0 CorpseCount=0 Limit=0 Scanned=0 LocalGuid=0x0 TargetGuid=0x0 Me=Unavailable Target=Unavailable",
                     Escape(command),
                     processId,
                     result.Status,
-                    Escape(result.Detail));
+                Escape(result.Detail));
                 return 1;
             }
 
             RuntimeWorldSnapshot snapshot = result.Value;
             ObjectManagerSnapshot objects = snapshot.Objects;
             Console.WriteLine(
-                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"{2}\" SnapshotUtc=\"{3:O}\" AgeMs={4} ObjectCount={5} PlayerCount={6} UnitCount={7} GameObjectCount={8} ItemCount={9} CorpseCount={10} Limit={11} Scanned={12} LocalGuid=0x{13:X} TargetGuid=0x{14:X} Me={15} Target={16}",
+                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"{2}\" SnapshotUtc=\"{3:O}\" AgeMs={4} Phase={5} ObjectCount={6} PlayerCount={7} UnitCount={8} GameObjectCount={9} ItemCount={10} CorpseCount={11} Limit={12} Scanned={13} LocalGuid=0x{14:X} TargetGuid=0x{15:X} Player={16} Me={17} Target={18}",
                 Escape(command),
                 processId,
                 result.Status,
                 snapshot.SnapshotUtc,
                 snapshot.AgeMs,
+                FormatWorldPhase(snapshot.Phase),
                 snapshot.ObjectCount,
                 objects == null ? 0 : objects.PlayerCount,
                 objects == null ? 0 : objects.UnitCount,
@@ -207,8 +218,35 @@ namespace SpellFire.WowRuntime.Cli
                 objects == null ? 0 : objects.Scanned,
                 objects == null ? 0 : objects.LocalGuid,
                 objects == null ? 0 : objects.TargetGuid,
+                FormatPlayer(snapshot.Player),
                 FormatObject(snapshot.Me),
                 FormatObject(snapshot.Target));
+            return 0;
+        }
+
+        private static int PrintWorldPhaseResult(string command, int processId, WowRuntimeResult<WorldPhaseSnapshot> result)
+        {
+            if (!result.Success)
+            {
+                Console.WriteLine(
+                    "Result=Fail Command=\"{0}\" ProcessId={1} Ready=False Reason=\"{2}\" Detail=\"{3}\" Phase=Unknown InGame=Unknown LoadingOrConnecting=Unknown Source=\"\"",
+                    Escape(command),
+                    processId,
+                    result.Status,
+                    Escape(result.Detail));
+                return 1;
+            }
+
+            Console.WriteLine(
+                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"{2}\" Phase={3} InGame={4} LoadingOrConnecting={5} Source=\"{6}\" Detail=\"{7}\"",
+                Escape(command),
+                processId,
+                result.Status,
+                result.Value.Phase,
+                result.Value.InGame,
+                result.Value.LoadingOrConnecting,
+                Escape(result.Value.Source),
+                Escape(result.Value.Detail));
             return 0;
         }
 
@@ -260,6 +298,35 @@ namespace SpellFire.WowRuntime.Cli
             return 0;
         }
 
+        private static int PrintMovementStateResult(string command, int processId, WowRuntimeResult<MovementStateSnapshot> result)
+        {
+            if (!result.Success)
+            {
+                Console.WriteLine(
+                    "Result=Fail Command=\"{0}\" ProcessId={1} Ready=False Reason=\"{2}\" Detail=\"{3}\" InMovement=Unknown Flags=Unknown ClickToMoveTypeRaw=Unknown ClickToMoveState=Unknown SpeedKnown=False Speed=0 Source=\"\"",
+                    Escape(command),
+                    processId,
+                    result.Status,
+                    Escape(result.Detail));
+                return 1;
+            }
+
+            Console.WriteLine(
+                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"{2}\" InMovement={3} Flags={4} ClickToMoveTypeRaw={5} ClickToMoveState={6} SpeedKnown={7} Speed={8:0.###} Source=\"{9}\" Detail=\"{10}\"",
+                Escape(command),
+                processId,
+                result.Status,
+                result.Value.InMovement,
+                result.Value.Flags,
+                result.Value.ClickToMoveTypeRaw,
+                result.Value.ClickToMoveState,
+                result.Value.SpeedKnown,
+                result.Value.Speed,
+                Escape(result.Value.Source),
+                Escape(result.Value.Detail));
+            return 0;
+        }
+
         private static string FormatObject(WowObjectSnapshot item)
         {
             if (item == null)
@@ -279,6 +346,44 @@ namespace SpellFire.WowRuntime.Cli
                 item.Position.Z,
                 item.DistanceFromMe,
                 item.IsValid);
+        }
+
+        private static string FormatPlayer(PlayerSnapshot player)
+        {
+            if (player == null)
+            {
+                return "Unavailable";
+            }
+
+            return string.Format(
+                "MapId={0} MapIdKnown={1} ContinentId={2} ContinentName=\"{3}\" Pos=({4:0.###},{5:0.###},{6:0.###}) Rotation={7:0.###} Movement={8} ClickToMoveTypeRaw={9} ClickToMoveState={10}",
+                player.MapId,
+                player.MapIdKnown,
+                player.ContinentId,
+                Escape(player.ContinentName),
+                player.Position.X,
+                player.Position.Y,
+                player.Position.Z,
+                player.Position.Rotation,
+                player.Movement,
+                player.ClickToMoveTypeRaw,
+                player.ClickToMoveState);
+        }
+
+        private static string FormatWorldPhase(WorldPhaseSnapshot phase)
+        {
+            if (phase == null)
+            {
+                return "Unavailable";
+            }
+
+            return string.Format(
+                "{0} InGame={1} LoadingOrConnecting={2} Source=\"{3}\" Detail=\"{4}\"",
+                phase.Phase,
+                phase.InGame,
+                phase.LoadingOrConnecting,
+                Escape(phase.Source),
+                Escape(phase.Detail));
         }
 
         private static string GetArg(string[] args, string name, string fallback)

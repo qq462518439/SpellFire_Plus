@@ -93,6 +93,13 @@ def main():
         ["Ready=False", 'Reason="ProcessUnavailable"', "Player=Unavailable"],
     ) and passed
     passed = run_case(
+        "missing-world-phase",
+        "world-phase",
+        missing_pid,
+        1,
+        ["Ready=False", 'Reason="ProcessUnavailable"', "Phase=Unknown", "InGame=Unknown", "LoadingOrConnecting=Unknown"],
+    ) and passed
+    passed = run_case(
         "missing-world-snapshot",
         "world-snapshot",
         missing_pid,
@@ -136,14 +143,21 @@ def main():
             "world-player",
             wow_pid,
             0,
-            ["Ready=True", 'Reason="Ready"', "Pos=(", "Movement="],
+            ["Ready=True", 'Reason="Ready"', "MapIdKnown=", "ContinentId=", "ContinentName=", "Pos=(", "Movement=", "ClickToMoveTypeRaw=", "ClickToMoveState="],
+        ) and passed
+        passed = run_case(
+            "live-world-phase",
+            "world-phase",
+            wow_pid,
+            0,
+            ["Ready=True", 'Reason="Ready"', "Phase=", "InGame=", "LoadingOrConnecting=", 'Source="Usefuls"', "Detail="],
         ) and passed
         passed = run_case(
             "live-world-snapshot",
-            "world-snapshot",
-            wow_pid,
-            0,
-            ["Ready=True", 'Reason="Ready"', "SnapshotUtc=", "AgeMs=", "ObjectCount=", "PlayerCount=", "UnitCount=", "GameObjectCount=", "Limit=", "Scanned=", "Me=Guid=0x"],
+        "world-snapshot",
+        wow_pid,
+        0,
+            ["Ready=True", 'Reason="Ready"', "SnapshotUtc=", "AgeMs=", "Phase=", "InGame=", "LoadingOrConnecting=", "ObjectCount=", "PlayerCount=", "UnitCount=", "GameObjectCount=", "Limit=", "Scanned=", "Player=MapId=", "MapIdKnown=", "ContinentId=", "ContinentName=", "Movement=", "ClickToMoveTypeRaw=", "ClickToMoveState=", "Me=Guid=0x"],
             ["--limit", "512"],
         ) and passed
         passed = run_case(
@@ -176,6 +190,14 @@ def main():
             0,
             ["Ready=True", 'Reason="Ready"', "SnapshotUtc=", "AgeMs=", "ObjectCount=", "UnitCount="],
             ["--limit", "512", "--kind", "Unit"],
+        ) and passed
+        passed = run_case(
+            "live-object-list-unit-scan-limit",
+            "object-list",
+            wow_pid,
+            0,
+            ["Ready=True", 'Reason="Ready"', "ObjectCount=20", "UnitCount=20", "Limit=20", "Scanned=512", "ItemIndex=19", "Kind=Unit", "Name="],
+            ["--limit", "20", "--scan-limit", "512", "--kind", "Unit"],
         ) and passed
         passed = run_case(
             "live-object-list-gameobject",

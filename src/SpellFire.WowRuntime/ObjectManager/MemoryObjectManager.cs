@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Text;
 using System.Linq;
 using SpellFire.MemoryRobot.Abstractions;
 using SpellFire.WowRuntime.Core;
@@ -49,9 +50,18 @@ namespace SpellFire.WowRuntime.ObjectManager
 
         public WowRuntimeResult<ObjectManagerSnapshot> GetObjects(int limit)
         {
+            return GetObjects(limit, GetDefaultScanLimit());
+        }
+
+        public WowRuntimeResult<ObjectManagerSnapshot> GetObjects(int limit, int scanLimit)
+        {
             if (limit <= 0)
             {
                 return WowRuntimeResult<ObjectManagerSnapshot>.Fail(WowRuntimeStatus.InvalidArgument, "Limit must be greater than zero.");
+            }
+            if (scanLimit <= 0)
+            {
+                return WowRuntimeResult<ObjectManagerSnapshot>.Fail(WowRuntimeStatus.InvalidArgument, "Scan limit must be greater than zero.");
             }
 
             WowRuntimeStatus status;
@@ -66,7 +76,7 @@ namespace SpellFire.WowRuntime.ObjectManager
             {
                 using (IMemoryRobot robot = memorySessions.Open(processId))
                 {
-                    ObjectManagerSnapshot snapshot = ReadSnapshot(robot, table, limit);
+                    ObjectManagerSnapshot snapshot = ReadSnapshot(robot, table, limit, scanLimit);
                     if (snapshot.LocalGuid == 0 && snapshot.Scanned == 0)
                     {
                         return WowRuntimeResult<ObjectManagerSnapshot>.Fail(
@@ -109,12 +119,17 @@ namespace SpellFire.WowRuntime.ObjectManager
 
         public WowRuntimeResult<ObjectManagerSnapshot> GetObjectsByEntry(int entry, int limit)
         {
+            return GetObjectsByEntry(entry, limit, GetDefaultScanLimit());
+        }
+
+        public WowRuntimeResult<ObjectManagerSnapshot> GetObjectsByEntry(int entry, int limit, int scanLimit)
+        {
             if (entry <= 0)
             {
                 return WowRuntimeResult<ObjectManagerSnapshot>.Fail(WowRuntimeStatus.InvalidArgument, "Entry must be greater than zero.");
             }
 
-            WowRuntimeResult<ObjectManagerSnapshot> snapshot = GetObjects(limit);
+            WowRuntimeResult<ObjectManagerSnapshot> snapshot = GetObjects(scanLimit, scanLimit);
             if (!snapshot.Success)
             {
                 return snapshot;
@@ -130,33 +145,43 @@ namespace SpellFire.WowRuntime.ObjectManager
             }
 
             return WowRuntimeResult<ObjectManagerSnapshot>.Ok(
-                new ObjectManagerSnapshot(snapshot.Value.Me, snapshot.Value.Target, matches, limit, snapshot.Value.LocalGuid, snapshot.Value.TargetGuid, snapshot.Value.Scanned, snapshot.Value.SnapshotUtc));
+                new ObjectManagerSnapshot(snapshot.Value.Me, snapshot.Value.Target, Take(matches, limit), limit, snapshot.Value.LocalGuid, snapshot.Value.TargetGuid, snapshot.Value.Scanned, snapshot.Value.SnapshotUtc));
         }
 
         public WowRuntimeResult<ObjectManagerSnapshot> GetObjectsByKind(ObjectKind kind, int limit)
+        {
+            return GetObjectsByKind(kind, limit, GetDefaultScanLimit());
+        }
+
+        public WowRuntimeResult<ObjectManagerSnapshot> GetObjectsByKind(ObjectKind kind, int limit, int scanLimit)
         {
             if (!Enum.IsDefined(typeof(ObjectKind), kind))
             {
                 return WowRuntimeResult<ObjectManagerSnapshot>.Fail(WowRuntimeStatus.InvalidArgument, "Object kind is not supported.");
             }
 
-            WowRuntimeResult<ObjectManagerSnapshot> snapshot = GetObjects(limit);
+            WowRuntimeResult<ObjectManagerSnapshot> snapshot = GetObjects(scanLimit, scanLimit);
             if (!snapshot.Success)
             {
                 return snapshot;
             }
 
-            return WowRuntimeResult<ObjectManagerSnapshot>.Ok(SortByDistance(FilterByKind(snapshot.Value, kind, limit), limit));
+            return WowRuntimeResult<ObjectManagerSnapshot>.Ok(SortByDistance(FilterByKind(snapshot.Value, kind, scanLimit), limit));
         }
 
         public WowRuntimeResult<ObjectManagerSnapshot> GetNearbyObjects(Vector3 center, float radius, int limit)
+        {
+            return GetNearbyObjects(center, radius, limit, GetDefaultScanLimit());
+        }
+
+        public WowRuntimeResult<ObjectManagerSnapshot> GetNearbyObjects(Vector3 center, float radius, int limit, int scanLimit)
         {
             if (radius < 0)
             {
                 return WowRuntimeResult<ObjectManagerSnapshot>.Fail(WowRuntimeStatus.InvalidArgument, "Radius must be zero or greater.");
             }
 
-            WowRuntimeResult<ObjectManagerSnapshot> snapshot = GetObjects(limit);
+            WowRuntimeResult<ObjectManagerSnapshot> snapshot = GetObjects(scanLimit, scanLimit);
             if (!snapshot.Success)
             {
                 return snapshot;
@@ -180,23 +205,28 @@ namespace SpellFire.WowRuntime.ObjectManager
 
             matches.Sort(CompareDistanceThenGuid);
             return WowRuntimeResult<ObjectManagerSnapshot>.Ok(
-                new ObjectManagerSnapshot(snapshot.Value.Me, snapshot.Value.Target, matches, limit, snapshot.Value.LocalGuid, snapshot.Value.TargetGuid, snapshot.Value.Scanned, snapshot.Value.SnapshotUtc));
+                new ObjectManagerSnapshot(snapshot.Value.Me, snapshot.Value.Target, Take(matches, limit), limit, snapshot.Value.LocalGuid, snapshot.Value.TargetGuid, snapshot.Value.Scanned, snapshot.Value.SnapshotUtc));
         }
 
         public WowRuntimeResult<ObjectManagerSnapshot> GetNearbyObjectsByKind(ObjectKind kind, Vector3 center, float radius, int limit)
+        {
+            return GetNearbyObjectsByKind(kind, center, radius, limit, GetDefaultScanLimit());
+        }
+
+        public WowRuntimeResult<ObjectManagerSnapshot> GetNearbyObjectsByKind(ObjectKind kind, Vector3 center, float radius, int limit, int scanLimit)
         {
             if (!Enum.IsDefined(typeof(ObjectKind), kind))
             {
                 return WowRuntimeResult<ObjectManagerSnapshot>.Fail(WowRuntimeStatus.InvalidArgument, "Object kind is not supported.");
             }
 
-            WowRuntimeResult<ObjectManagerSnapshot> snapshot = GetNearbyObjects(center, radius, limit);
+            WowRuntimeResult<ObjectManagerSnapshot> snapshot = GetNearbyObjects(center, radius, limit, scanLimit);
             if (!snapshot.Success)
             {
                 return snapshot;
             }
 
-            return WowRuntimeResult<ObjectManagerSnapshot>.Ok(SortByDistance(FilterByKind(snapshot.Value, kind, limit), limit));
+            return WowRuntimeResult<ObjectManagerSnapshot>.Ok(SortByDistance(FilterByKind(snapshot.Value, kind, scanLimit), limit));
         }
 
         public WowRuntimeResult<WowObjectSnapshot> GetNearestObject(Vector3 center, float radius)
@@ -242,14 +272,24 @@ namespace SpellFire.WowRuntime.ObjectManager
                 }
             }
 
-            return new ObjectManagerSnapshot(snapshot.Me, snapshot.Target, matches, limit, snapshot.LocalGuid, snapshot.TargetGuid, snapshot.Scanned, snapshot.SnapshotUtc);
+            return new ObjectManagerSnapshot(snapshot.Me, snapshot.Target, Take(matches, limit), limit, snapshot.LocalGuid, snapshot.TargetGuid, snapshot.Scanned, snapshot.SnapshotUtc);
         }
 
         private static ObjectManagerSnapshot SortByDistance(ObjectManagerSnapshot snapshot, int limit)
         {
             List<WowObjectSnapshot> sorted = new List<WowObjectSnapshot>(snapshot.Objects);
             sorted.Sort(CompareDistanceThenGuid);
-            return new ObjectManagerSnapshot(snapshot.Me, snapshot.Target, sorted, limit, snapshot.LocalGuid, snapshot.TargetGuid, snapshot.Scanned, snapshot.SnapshotUtc);
+            return new ObjectManagerSnapshot(snapshot.Me, snapshot.Target, Take(sorted, limit), limit, snapshot.LocalGuid, snapshot.TargetGuid, snapshot.Scanned, snapshot.SnapshotUtc);
+        }
+
+        private static IReadOnlyList<WowObjectSnapshot> Take(List<WowObjectSnapshot> source, int limit)
+        {
+            if (source.Count <= limit)
+            {
+                return source;
+            }
+
+            return source.Take(limit).ToList();
         }
 
         private static int CompareDistanceThenGuid(WowObjectSnapshot left, WowObjectSnapshot right)
@@ -312,7 +352,7 @@ namespace SpellFire.WowRuntime.ObjectManager
             return table == null || table.ScanLimit <= 0 ? 512 : table.ScanLimit;
         }
 
-        private static ObjectManagerSnapshot ReadSnapshot(IMemoryRobot robot, WorldAddressTable table, int limit)
+        private static ObjectManagerSnapshot ReadSnapshot(IMemoryRobot robot, WorldAddressTable table, int limit, int scanLimit)
         {
             uint clientConnection = ReadUInt32(robot, table.ObjectManager);
             if (clientConnection == 0)
@@ -333,7 +373,7 @@ namespace SpellFire.WowRuntime.ObjectManager
             List<WowObjectSnapshot> objects = new List<WowObjectSnapshot>();
             int scanned = 0;
 
-            int maxScan = Math.Min(table.ScanLimit, Math.Max(limit, 1));
+            int maxScan = Math.Min(table.ScanLimit, Math.Max(scanLimit, 1));
             for (int i = 0; i < maxScan && current != 0; i++)
             {
                 if (!visited.Add(current))
@@ -352,6 +392,20 @@ namespace SpellFire.WowRuntime.ObjectManager
             }
 
             WowObjectSnapshot me = objects.FirstOrDefault(item => item.Guid == localGuid);
+            if (me != null && string.IsNullOrEmpty(me.Name))
+            {
+                string localName = ReadLocalPlayerName(robot);
+                if (!string.IsNullOrEmpty(localName))
+                {
+                    int meIndex = objects.FindIndex(item => item.Guid == localGuid);
+                    me = CopyWithName(me, localName);
+                    if (meIndex >= 0)
+                    {
+                        objects[meIndex] = me;
+                    }
+                }
+            }
+
             List<WowObjectSnapshot> enrichedObjects = EnrichDistances(objects, me);
             WowObjectSnapshot enrichedMe = enrichedObjects.FirstOrDefault(item => item.Guid == localGuid);
             WowObjectSnapshot target = enrichedObjects.FirstOrDefault(item => item.Guid == targetGuid);
@@ -382,21 +436,22 @@ namespace SpellFire.WowRuntime.ObjectManager
                 }
 
                 Vector3 position = ReadPosition(robot, table, baseAddress, kind);
+                string name = ReadName(robot, kind, baseAddress, guid);
                 if (kind == ObjectKind.Player)
                 {
-                    snapshot = new WowPlayerSnapshot(guid, entry, string.Empty, position, true, true, false, 0, baseAddress, 0);
+                    snapshot = new WowPlayerSnapshot(guid, entry, name, position, true, true, false, 0, baseAddress, 0);
                 }
                 else if (kind == ObjectKind.Unit)
                 {
-                    snapshot = new WowUnitSnapshot(guid, entry, string.Empty, kind, position, true, true, false, 0, baseAddress, 0);
+                    snapshot = new WowUnitSnapshot(guid, entry, name, kind, position, true, true, false, 0, baseAddress, 0);
                 }
                 else if (kind == ObjectKind.GameObject)
                 {
-                    snapshot = new WowGameObjectSnapshot(guid, entry, string.Empty, position, true, baseAddress, 0);
+                    snapshot = new WowGameObjectSnapshot(guid, entry, name, position, true, baseAddress, 0);
                 }
                 else
                 {
-                    snapshot = new WowObjectSnapshot(guid, entry, string.Empty, kind, position, true, baseAddress, 0);
+                    snapshot = new WowObjectSnapshot(guid, entry, name, kind, position, true, baseAddress, 0);
                 }
 
                 return true;
@@ -423,6 +478,56 @@ namespace SpellFire.WowRuntime.ObjectManager
             }
 
             return new Vector3(x, y, z, rotation);
+        }
+
+        private static string ReadName(IMemoryRobot robot, ObjectKind kind, uint baseAddress, ulong guid)
+        {
+            try
+            {
+                if (kind == ObjectKind.GameObject)
+                {
+                    return ReadGameObjectName(robot, baseAddress);
+                }
+
+                if (kind == ObjectKind.Unit)
+                {
+                    return ReadUnitName(robot, baseAddress);
+                }
+            }
+            catch
+            {
+            }
+
+            return string.Empty;
+        }
+
+        private static string ReadGameObjectName(IMemoryRobot robot, uint baseAddress)
+        {
+            uint info = ReadUInt32(robot, Add(baseAddress, 420));
+            if (info == 0)
+            {
+                return string.Empty;
+            }
+
+            uint nameAddress = ReadUInt32(robot, Add(info, 144));
+            return ReadStringUtf8(robot, nameAddress, 80);
+        }
+
+        private static string ReadUnitName(IMemoryRobot robot, uint baseAddress)
+        {
+            uint dbCacheRow = ReadUInt32(robot, Add(baseAddress, 2404));
+            if (dbCacheRow == 0)
+            {
+                return string.Empty;
+            }
+
+            uint nameAddress = ReadUInt32(robot, Add(dbCacheRow, 92));
+            return ReadStringUtf8(robot, nameAddress, 80);
+        }
+
+        private static string ReadLocalPlayerName(IMemoryRobot robot)
+        {
+            return ReadStringUtf8(robot, 0x00C79D98, 80);
         }
 
         private static ObjectKind MapKind(int rawType)
@@ -505,6 +610,51 @@ namespace SpellFire.WowRuntime.ObjectManager
         private static int ReadInt32(IMemoryRobot robot, IntPtr address)
         {
             return robot.Reader.Read<int>(address);
+        }
+
+        private static string ReadStringUtf8(IMemoryRobot robot, uint address, int maxBytes)
+        {
+            if (address == 0 || maxBytes <= 0)
+            {
+                return string.Empty;
+            }
+
+            byte[] buffer = robot.Reader.ReadBytes(new IntPtr(unchecked((int)address)), maxBytes);
+            int length = 0;
+            while (length < buffer.Length && buffer[length] != 0)
+            {
+                length++;
+            }
+
+            if (length == 0)
+            {
+                return string.Empty;
+            }
+
+            return Encoding.UTF8.GetString(buffer, 0, length).Trim();
+        }
+
+        private static WowObjectSnapshot CopyWithName(WowObjectSnapshot item, string name)
+        {
+            WowPlayerSnapshot player = item as WowPlayerSnapshot;
+            if (player != null)
+            {
+                return new WowPlayerSnapshot(player.Guid, player.Entry, name, player.Position, player.IsValid, player.IsAlive, player.InCombat, player.TargetGuid, player.BaseAddress, player.DistanceFromMe);
+            }
+
+            WowUnitSnapshot unit = item as WowUnitSnapshot;
+            if (unit != null)
+            {
+                return new WowUnitSnapshot(unit.Guid, unit.Entry, name, unit.Kind, unit.Position, unit.IsValid, unit.IsAlive, unit.InCombat, unit.TargetGuid, unit.BaseAddress, unit.DistanceFromMe);
+            }
+
+            WowGameObjectSnapshot gameObject = item as WowGameObjectSnapshot;
+            if (gameObject != null)
+            {
+                return new WowGameObjectSnapshot(gameObject.Guid, gameObject.Entry, name, gameObject.Position, gameObject.IsValid, gameObject.BaseAddress, gameObject.DistanceFromMe);
+            }
+
+            return new WowObjectSnapshot(item.Guid, item.Entry, name, item.Kind, item.Position, item.IsValid, item.BaseAddress, item.DistanceFromMe);
         }
 
         private static bool ProcessExists(int processId)

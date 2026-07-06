@@ -28,6 +28,10 @@ namespace SpellFire.WowRuntime.World
                   IntPtr.Zero,
                   IntPtr.Zero,
                   IntPtr.Zero,
+                  IntPtr.Zero,
+                  IntPtr.Zero,
+                  IntPtr.Zero,
+                  IntPtr.Zero,
                   0)
         {
         }
@@ -44,11 +48,15 @@ namespace SpellFire.WowRuntime.World
             IntPtr nextObjectOffset,
             IntPtr localGuid,
             IntPtr targetGuid,
+            IntPtr continentIdOffset,
             IntPtr objectGuidOffset,
             IntPtr objectTypeOffset,
             IntPtr objectEntryOffset,
             IntPtr unitPositionOffset,
             IntPtr gameObjectPositionOffset,
+            IntPtr inGameFlag,
+            IntPtr loadingOrConnectingFlag,
+            IntPtr clickToMoveType,
             int scanLimit)
         {
             MapId = mapId;
@@ -62,11 +70,15 @@ namespace SpellFire.WowRuntime.World
             NextObjectOffset = nextObjectOffset;
             LocalGuid = localGuid;
             TargetGuid = targetGuid;
+            ContinentIdOffset = continentIdOffset;
             ObjectGuidOffset = objectGuidOffset;
             ObjectTypeOffset = objectTypeOffset;
             ObjectEntryOffset = objectEntryOffset;
             UnitPositionOffset = unitPositionOffset;
             GameObjectPositionOffset = gameObjectPositionOffset;
+            InGameFlag = inGameFlag;
+            LoadingOrConnectingFlag = loadingOrConnectingFlag;
+            ClickToMoveType = clickToMoveType;
             ScanLimit = scanLimit;
         }
 
@@ -75,6 +87,10 @@ namespace SpellFire.WowRuntime.World
             get
             {
                 return new WorldAddressTable(
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
                     IntPtr.Zero,
                     IntPtr.Zero,
                     IntPtr.Zero,
@@ -117,6 +133,8 @@ namespace SpellFire.WowRuntime.World
 
         public IntPtr TargetGuid { get; }
 
+        public IntPtr ContinentIdOffset { get; }
+
         public IntPtr ObjectGuidOffset { get; }
 
         public IntPtr ObjectTypeOffset { get; }
@@ -126,6 +144,12 @@ namespace SpellFire.WowRuntime.World
         public IntPtr UnitPositionOffset { get; }
 
         public IntPtr GameObjectPositionOffset { get; }
+
+        public IntPtr InGameFlag { get; }
+
+        public IntPtr LoadingOrConnectingFlag { get; }
+
+        public IntPtr ClickToMoveType { get; }
 
         public int ScanLimit { get; }
 
@@ -150,6 +174,7 @@ namespace SpellFire.WowRuntime.World
                        NextObjectOffset != IntPtr.Zero &&
                        LocalGuid != IntPtr.Zero &&
                        TargetGuid != IntPtr.Zero &&
+                       ContinentIdOffset != IntPtr.Zero &&
                        ObjectGuidOffset != IntPtr.Zero &&
                        ObjectTypeOffset != IntPtr.Zero &&
                        UnitPositionOffset != IntPtr.Zero &&

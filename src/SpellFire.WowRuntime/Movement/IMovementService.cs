@@ -6,7 +6,7 @@ namespace SpellFire.WowRuntime.Movement
 {
     public interface IMovementService
     {
-        bool InMovement { get; }
+        WowRuntimeResult<MovementStateSnapshot> GetMovementState();
 
         WowRuntimeResult<MovementActionSnapshot> Jump();
 

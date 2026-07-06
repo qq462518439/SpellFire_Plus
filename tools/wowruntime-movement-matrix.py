@@ -66,6 +66,13 @@ def main():
         ["Ready=False", 'Reason="ProcessUnavailable"'],
     ) and passed
     passed = run_case(
+        "missing-movement-state",
+        "movement-state",
+        missing_pid,
+        1,
+        ["Ready=False", 'Reason="ProcessUnavailable"', "InMovement=Unknown", "ClickToMoveTypeRaw=Unknown", "ClickToMoveState=Unknown"],
+    ) and passed
+    passed = run_case(
         "movement-go-not-implemented",
         "movement-go",
         missing_pid,
@@ -77,6 +84,13 @@ def main():
     if wow_pid <= 0:
         print('SKIP wowruntime-movement-live Reason="NoWowProcess"')
     else:
+        passed = run_case(
+            "live-movement-state",
+            "movement-state",
+            wow_pid,
+            0,
+            ["Ready=True", 'Reason="Ready"', "InMovement=", "Flags=", "ClickToMoveTypeRaw=", "ClickToMoveState=", "SpeedKnown=", 'Source="WorldState"', "Phase="],
+        ) and passed
         passed = run_case(
             "live-movement-jump",
             "movement-jump",

@@ -6,9 +6,21 @@ namespace SpellFire.WowRuntime.World
     public sealed class RuntimeWorldSnapshot
     {
         public RuntimeWorldSnapshot(int processId, ObjectManagerSnapshot objects)
+            : this(processId, objects, null, null)
+        {
+        }
+
+        public RuntimeWorldSnapshot(int processId, ObjectManagerSnapshot objects, PlayerSnapshot player)
+            : this(processId, objects, player, null)
+        {
+        }
+
+        public RuntimeWorldSnapshot(int processId, ObjectManagerSnapshot objects, PlayerSnapshot player, WorldPhaseSnapshot phase)
         {
             ProcessId = processId;
             Objects = objects;
+            Player = player;
+            Phase = phase;
             SnapshotUtc = objects == null ? DateTime.UtcNow : objects.SnapshotUtc;
         }
 
@@ -26,6 +38,10 @@ namespace SpellFire.WowRuntime.World
         }
 
         public ObjectManagerSnapshot Objects { get; }
+
+        public PlayerSnapshot Player { get; }
+
+        public WorldPhaseSnapshot Phase { get; }
 
         public WowObjectSnapshot Me
         {

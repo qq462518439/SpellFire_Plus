@@ -36,12 +36,14 @@ namespace SpellFire.WowRuntime.Infrastructure
             IRuntimeFacade runtimeFacade = RuntimeCompositionRoot.CreateDefaultFacade();
             RuntimeFacadeScriptService scripts = new RuntimeFacadeScriptService(processId, runtimeFacade);
 
+            IWorldState world = new MemoryWorldState(processId, memorySessions, addresses, objectManager);
+
             return new Core.WowRuntime(
                 processId,
-                new MemoryWorldState(processId, memorySessions, addresses, objectManager),
-                new ObjectManagerWorldSnapshotService(processId, objectManager),
+                world,
+                new ObjectManagerWorldSnapshotService(processId, objectManager, world),
                 objectManager,
-                new ScriptMovementService(scripts),
+                new ScriptMovementService(scripts, world),
                 new UnavailableNavigationService(),
                 scripts,
                 bot);
