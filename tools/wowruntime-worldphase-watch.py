@@ -2,6 +2,7 @@ import argparse
 import subprocess
 import sys
 import time
+from collections import OrderedDict
 from pathlib import Path
 
 
@@ -118,12 +119,21 @@ def main():
     max_enters = max(0, args.max_enters)
     enter_count = 0
     last_enter_at = 0.0
+    phase_counts = OrderedDict()
+    first_phase = ""
+    last_phase = ""
 
     print(f"START wowruntime-worldphase-watch Pid={pid} Samples={sample_count} Interval={interval:g} ExpectPhase=\"{expected}\" SendEnterWhenNotInWorld={args.send_enter_when_not_inworld} EnterInterval={enter_interval:g} MaxEnters={max_enters}")
     for index in range(sample_count):
         exit_code, output = run_phase(pid)
         last_output = output
         phase = extract_phase(output)
+        if not phase:
+            phase = "Unavailable"
+        if not first_phase:
+            first_phase = phase
+        last_phase = phase
+        phase_counts[phase] = phase_counts.get(phase, 0) + 1
         print(f"Sample={index + 1} Exit={exit_code} ObservedPhase=\"{phase}\" {output}")
 
         if expected and f"Phase={expected}" in output:
@@ -145,7 +155,13 @@ def main():
         print(f"FAIL wowruntime-worldphase-watch Reason=\"ExpectedPhaseNotObserved\" ExpectedPhase=\"{expected}\" Last=\"{last_output}\"")
         return 1
 
-    print(f"OK wowruntime-worldphase-watch Pid={pid} Matched={matched} EnterCount={enter_count}")
+    summary = ",".join(f"{phase}:{count}" for phase, count in phase_counts.items())
+    print(
+        f"SUMMARY wowruntime-worldphase-watch Pid={pid} Samples={sample_count} "
+        f"FirstPhase=\"{first_phase}\" LastPhase=\"{last_phase}\" PhaseCounts=\"{summary}\" "
+        f"Matched={matched} EnterCount={enter_count}"
+    )
+    print(f"OK wowruntime-worldphase-watch Pid={pid} Matched={matched} EnterCount={enter_count} LastPhase=\"{last_phase}\"")
     return 0
 
 

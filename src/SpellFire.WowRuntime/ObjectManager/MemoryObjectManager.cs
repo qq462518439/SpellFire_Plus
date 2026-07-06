@@ -48,6 +48,92 @@ namespace SpellFire.WowRuntime.ObjectManager
                 : WowRuntimeResult<WowObjectSnapshot>.Ok(snapshot.Value.Target);
         }
 
+        public WowRuntimeResult<ObjectManagerDiagnosticSnapshot> GetDiagnostic(int scanLimit)
+        {
+            if (scanLimit <= 0)
+            {
+                return WowRuntimeResult<ObjectManagerDiagnosticSnapshot>.Fail(WowRuntimeStatus.InvalidArgument, "Scan limit must be greater than zero.");
+            }
+
+            bool processExists = ProcessExists(processId);
+            if (!processExists)
+            {
+                return WowRuntimeResult<ObjectManagerDiagnosticSnapshot>.Ok(new ObjectManagerDiagnosticSnapshot(
+                    false,
+                    false,
+                    false,
+                    "Process",
+                    "Target process is not available.",
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    string.Empty,
+                    string.Empty));
+            }
+
+            WorldAddressTable table = addresses.GetAddressTable(processId);
+            bool addressTableReady = table != null && table.HasObjectManager;
+            if (!addressTableReady)
+            {
+                return WowRuntimeResult<ObjectManagerDiagnosticSnapshot>.Ok(new ObjectManagerDiagnosticSnapshot(
+                    true,
+                    false,
+                    false,
+                    "AddressTable",
+                    "Object manager address table is not available.",
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    string.Empty,
+                    string.Empty));
+            }
+
+            try
+            {
+                using (IMemoryRobot robot = memorySessions.Open(processId))
+                {
+                    if (!robot.Session.IsOpen)
+                    {
+                        return WowRuntimeResult<ObjectManagerDiagnosticSnapshot>.Ok(new ObjectManagerDiagnosticSnapshot(
+                            true,
+                            false,
+                            true,
+                            "Session",
+                            "Memory session is not open.",
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            string.Empty,
+                            string.Empty));
+                    }
+
+                    return WowRuntimeResult<ObjectManagerDiagnosticSnapshot>.Ok(ReadDiagnostic(robot, table, scanLimit));
+                }
+            }
+            catch (Exception ex)
+            {
+                return WowRuntimeResult<ObjectManagerDiagnosticSnapshot>.Fail(WowRuntimeStatus.ReadFailed, ex.Message);
+            }
+        }
+
         public WowRuntimeResult<ObjectManagerSnapshot> GetObjects(int limit)
         {
             return GetObjects(limit, GetDefaultScanLimit());
@@ -388,7 +474,14 @@ namespace SpellFire.WowRuntime.ObjectManager
                     objects.Add(item);
                 }
 
-                current = ReadUInt32(robot, Add(current, table.NextObjectOffset.ToInt32()));
+                try
+                {
+                    current = ReadUInt32(robot, Add(current, table.NextObjectOffset.ToInt32()));
+                }
+                catch
+                {
+                    break;
+                }
             }
 
             WowObjectSnapshot me = objects.FirstOrDefault(item => item.Guid == localGuid);
@@ -410,6 +503,188 @@ namespace SpellFire.WowRuntime.ObjectManager
             WowObjectSnapshot enrichedMe = enrichedObjects.FirstOrDefault(item => item.Guid == localGuid);
             WowObjectSnapshot target = enrichedObjects.FirstOrDefault(item => item.Guid == targetGuid);
             return new ObjectManagerSnapshot(enrichedMe, target, enrichedObjects, limit, localGuid, targetGuid, scanned);
+        }
+
+        private static ObjectManagerDiagnosticSnapshot ReadDiagnostic(IMemoryRobot robot, WorldAddressTable table, int scanLimit)
+        {
+            uint clientConnection = 0;
+            uint objectManager = 0;
+            ulong localGuid = 0;
+            ulong targetGuid = 0;
+            uint firstObject = 0;
+            int scanned = 0;
+            int readableObjects = 0;
+            int failedObjects = 0;
+            uint firstFailedObject = 0;
+            string firstFailedStage = string.Empty;
+            string firstFailedDetail = string.Empty;
+
+            try
+            {
+                clientConnection = ReadUInt32(robot, table.ObjectManager);
+            }
+            catch (Exception ex)
+            {
+                return Diagnostic("ClientConnection", ex.Message, clientConnection, objectManager, localGuid, targetGuid, firstObject, scanned, readableObjects, failedObjects, firstFailedObject, firstFailedStage, firstFailedDetail);
+            }
+
+            if (clientConnection == 0)
+            {
+                return Diagnostic("ClientConnection", "Client connection is zero.", clientConnection, objectManager, localGuid, targetGuid, firstObject, scanned, readableObjects, failedObjects, firstFailedObject, firstFailedStage, firstFailedDetail);
+            }
+
+            try
+            {
+                objectManager = ReadUInt32(robot, Add(clientConnection, 0x2ED0));
+            }
+            catch (Exception ex)
+            {
+                return Diagnostic("ObjectManager", ex.Message, clientConnection, objectManager, localGuid, targetGuid, firstObject, scanned, readableObjects, failedObjects, firstFailedObject, firstFailedStage, firstFailedDetail);
+            }
+
+            if (objectManager == 0)
+            {
+                return Diagnostic("ObjectManager", "Object manager is zero.", clientConnection, objectManager, localGuid, targetGuid, firstObject, scanned, readableObjects, failedObjects, firstFailedObject, firstFailedStage, firstFailedDetail);
+            }
+
+            try
+            {
+                localGuid = ReadUInt64(robot, table.LocalGuid);
+                targetGuid = ReadUInt64(robot, table.TargetGuid);
+                firstObject = ReadUInt32(robot, Add(objectManager, table.FirstObject.ToInt32()));
+            }
+            catch (Exception ex)
+            {
+                return Diagnostic("ObjectManagerHeader", ex.Message, clientConnection, objectManager, localGuid, targetGuid, firstObject, scanned, readableObjects, failedObjects, firstFailedObject, firstFailedStage, firstFailedDetail);
+            }
+
+            HashSet<uint> visited = new HashSet<uint>();
+            uint current = firstObject;
+            int maxScan = Math.Min(table.ScanLimit, Math.Max(scanLimit, 1));
+            for (int i = 0; i < maxScan && current != 0; i++)
+            {
+                if (!visited.Add(current))
+                {
+                    return Diagnostic("CycleDetected", "Object linked list cycle detected.", clientConnection, objectManager, localGuid, targetGuid, firstObject, scanned, readableObjects, failedObjects, firstFailedObject, firstFailedStage, firstFailedDetail);
+                }
+
+                scanned++;
+                string failedStage;
+                string failedDetail;
+                if (TryReadObjectDiagnostic(robot, table, current, out failedStage, out failedDetail))
+                {
+                    readableObjects++;
+                }
+                else
+                {
+                    failedObjects++;
+                    if (firstFailedObject == 0)
+                    {
+                        firstFailedObject = current;
+                        firstFailedStage = failedStage;
+                        firstFailedDetail = failedDetail;
+                    }
+                }
+
+                try
+                {
+                    current = ReadUInt32(robot, Add(current, table.NextObjectOffset.ToInt32()));
+                }
+                catch (Exception ex)
+                {
+                    return Diagnostic("NextObject", ex.Message, clientConnection, objectManager, localGuid, targetGuid, firstObject, scanned, readableObjects, failedObjects, firstFailedObject, firstFailedStage, firstFailedDetail);
+                }
+            }
+
+            return Diagnostic("Complete", "Diagnostic completed.", clientConnection, objectManager, localGuid, targetGuid, firstObject, scanned, readableObjects, failedObjects, firstFailedObject, firstFailedStage, firstFailedDetail);
+        }
+
+        private static ObjectManagerDiagnosticSnapshot Diagnostic(
+            string stage,
+            string detail,
+            uint clientConnection,
+            uint objectManager,
+            ulong localGuid,
+            ulong targetGuid,
+            uint firstObject,
+            int scanned,
+            int readableObjects,
+            int failedObjects,
+            uint firstFailedObject,
+            string firstFailedStage,
+            string firstFailedDetail)
+        {
+            return new ObjectManagerDiagnosticSnapshot(
+                true,
+                true,
+                true,
+                stage,
+                detail,
+                clientConnection,
+                objectManager,
+                localGuid,
+                targetGuid,
+                firstObject,
+                scanned,
+                readableObjects,
+                failedObjects,
+                firstFailedObject,
+                firstFailedStage,
+                firstFailedDetail);
+        }
+
+        private static bool TryReadObjectDiagnostic(IMemoryRobot robot, WorldAddressTable table, uint baseAddress, out string failedStage, out string failedDetail)
+        {
+            failedStage = string.Empty;
+            failedDetail = string.Empty;
+
+            try
+            {
+                ulong guid = ReadUInt64(robot, Add(baseAddress, table.ObjectGuidOffset.ToInt32()));
+                if (guid == 0)
+                {
+                    failedStage = "Guid";
+                    failedDetail = "Guid is zero.";
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                failedStage = "Guid";
+                failedDetail = ex.Message;
+                return false;
+            }
+
+            int type;
+            try
+            {
+                type = ReadInt32(robot, Add(baseAddress, table.ObjectTypeOffset.ToInt32()));
+                if (type < 0 || type > 7)
+                {
+                    failedStage = "Type";
+                    failedDetail = "Object type is outside expected range.";
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                failedStage = "Type";
+                failedDetail = ex.Message;
+                return false;
+            }
+
+            try
+            {
+                ReadPosition(robot, table, baseAddress, MapKind(type));
+            }
+            catch (Exception ex)
+            {
+                failedStage = "Position";
+                failedDetail = ex.Message;
+                return false;
+            }
+
+            return true;
         }
 
         private static bool TryReadObject(IMemoryRobot robot, WorldAddressTable table, uint baseAddress, out WowObjectSnapshot snapshot)

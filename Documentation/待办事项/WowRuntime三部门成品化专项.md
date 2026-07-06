@@ -297,6 +297,1011 @@ python tools\runtime-facade-matrix.py
 - 是否触碰 RobotManager：否。
 - 是否触碰 Product：否。
 
+### 2026-07-06 第十刀：ObjectManager 列表扫描深度与返回数量拆分
+- 本轮改动部门：`ObjectManager`、CLI、对象层验收矩阵。
+- 结论：`limit` 不再同时承担扫描深度和返回数量；列表类命令已拆成：
+  - `limit`：最多返回多少条结果。
+  - `scan-limit`：最多遍历多少个 ObjectManager 节点。
+- 修复点：
+  - 旧行为下 `object-list --kind Unit --limit 20` 只扫描前 20 个节点，当前 20 个节点内没有 Unit 时会误判为 0。
+  - 新行为下 `object-list --kind Unit --limit 20 --scan-limit 512` 会扫描 512 个节点，再返回距离最近的 20 个 Unit。
+- 已扩展接口：
+  - `GetObjects(int limit, int scanLimit)`
+  - `GetObjectsByEntry(int entry, int limit, int scanLimit)`
+  - `GetObjectsByKind(ObjectKind kind, int limit, int scanLimit)`
+  - `GetNearbyObjects(Vector3 center, float radius, int limit, int scanLimit)`
+  - `GetNearbyObjectsByKind(ObjectKind kind, Vector3 center, float radius, int limit, int scanLimit)`
+- 在线样本实证：
+  - `object-list --kind Unit --limit 20 --scan-limit 512 --pid 4120` 输出 `ObjectCount=20 UnitCount=20 Limit=20 Scanned=512`，并返回 20 个带名称 Unit。
+  - `object-list --kind Unit --limit 20 --scan-limit 20 --pid 4120` 仍可返回 0，证明旧问题确实来自扫描深度不足，而不是 Unit 名称链失败。
+- 已通过验收命令：
+  - `dotnet build .\src\SpellFire.WowRuntime.Cli\SpellFire.WowRuntime.Cli.csproj -c Debug -p:UseSharedCompilation=false`
+  - `python tools\wowruntime-objectmanager-matrix.py --pid 4120`
+  - `python tools\wowruntime-object-name-matrix.py --pid 4120 --require-unit`
+  - `python tools\wowruntime-matrix.py --pid 4120`
+- 仍是未知/未完成字段：
+  - 本地玩家 `Name` 当前仍为空，不能声明 Player 名称完成。
+  - 非本地 Player 名称依赖 WRobot `GetPlayerName.GetName(guid)` 的缓存/查询链，短期未复刻。
+  - 当前 `ObjectCount` 表示返回数量，不表示总匹配数量；如果后续需要完整统计，可另加 `MatchedCount`，但不在本刀扩展。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第十一刀：Movement 真实移动状态验收
+- 本轮改动部门：`Movement`、CLI、动作层验收矩阵。
+- 结论：`Movement` 已不再只证明“Lua 发出成功”，本轮补上了真实移动状态证据。
+- 新增最小动作入口：
+  - `IMovementService.StartMoveForward()`
+  - CLI 命令：`movement-forward-start`
+  - Lua 动作：`MoveForwardStart(); DEFAULT_CHAT_FRAME:AddMessage("SPELLFIRE_MOVE_FORWARD_START_OK");`
+- 验收矩阵新增自动闭环：
+  - 执行 `movement-forward-start`。
+  - 连续采样 `movement-state`。
+  - 只要出现 `InMovement=True` 或 `Speed>0` 即判定真实移动状态成立。
+  - 无论成功或失败，最后都执行 `movement-stop`，避免角色持续前进。
+- 在线样本实证：
+  - `movement-forward-start` 返回 `Action="forward-start"` 且 `RuntimeReason="LuaExecuteSucceeded"`。
+  - 第 1 次状态采样返回：`InMovement=True Flags=Moving ClickToMoveTypeRaw=13 ClickToMoveState=None SpeedKnown=True Speed=2.5`。
+  - `movement-stop` 返回 `Action="stop"` 且 `RuntimeReason="LuaExecuteSucceeded"`。
+- 已通过验收命令：
+  - `dotnet build .\src\SpellFire.WowRuntime.Cli\SpellFire.WowRuntime.Cli.csproj -c Debug -p:UseSharedCompilation=false`
+  - `python tools\wowruntime-movement-matrix.py --pid 4120`
+  - `python tools\wowruntime-matrix.py --pid 4120`
+- 边界说明：
+  - `movement-forward-start` 是 Movement 最小动作层能力，不是导航。
+  - `movement-go` 继续返回 `FeatureUnavailable`，导航专项前不实现路径移动。
+  - 本轮没有引入路径规划、寻路、RobotManager 或 Product 生命周期。
+- 仍是未知/未完成字段：
+  - `ClickToMoveTypeRaw=13` 且 `Speed=2.5` 说明键盘前进与 CTM 状态可以分离；后续如要验证 CTM Move，需要单独采样 `ClickToMoveTypeRaw=4`。
+  - 当前 Movement 成品层还缺更细的转向/朝向动作验收，不在本刀扩展。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第十二刀：Movement 转向最小动作层
+- 本轮改动部门：`Movement`、CLI、动作层验收矩阵。
+- 结论：Movement 已补齐左右转的最小可执行动作，并且停止动作会同时清理移动和转向状态，降低残留动作风险。
+- 新增动作入口：
+  - `IMovementService.StartTurnLeft()`
+  - `IMovementService.StartTurnRight()`
+  - `IMovementService.StopTurn()`
+- 新增 CLI 命令：
+  - `movement-turn-left-start`
+  - `movement-turn-right-start`
+  - `movement-turn-stop`
+- Stop 行为修正：
+  - `movement-stop` 现在执行 `MoveForwardStop / MoveBackwardStop / StrafeLeftStop / StrafeRightStop / AscendStop / TurnLeftStop / TurnRightStop`。
+  - `movement-stop-to` 同步执行上述停止链，避免左右转残留。
+- 在线样本实证：
+  - `movement-turn-left-start` 返回 `Action="turn-left-start"` 且 `RuntimeReason="LuaExecuteSucceeded"`。
+  - `movement-turn-right-start` 返回 `Action="turn-right-start"` 且 `RuntimeReason="LuaExecuteSucceeded"`。
+  - 每次转向采样后都执行 `movement-turn-stop`，返回 `Action="turn-stop"` 且 `RuntimeReason="LuaExecuteSucceeded"`。
+  - 原有真实前进样本仍成立：`InMovement=True Flags=Moving Speed=2.5`。
+- 已通过验收命令：
+  - `dotnet build .\src\SpellFire.WowRuntime.Cli\SpellFire.WowRuntime.Cli.csproj -c Debug -p:UseSharedCompilation=false`
+  - `python tools\wowruntime-movement-matrix.py --pid 4120`
+  - `python tools\wowruntime-matrix.py --pid 4120`
+- 边界说明：
+  - 本刀只声明“转向动作可执行且可停止”，不声明朝向数值读取/FaceTo 坐标能力已完成。
+  - `movement-go` 继续返回 `FeatureUnavailable`。
+  - 本轮没有引入路径规划、导航、RobotManager 或 Product 生命周期。
+- 仍是未知/未完成字段：
+  - 朝向变化的数值验收还未建立，需要后续基于 `PlayerSnapshot.Rotation` 做差值采样。
+  - `Face/FaceTo` 暂不落地，避免在没有朝向读数验收前伪造成品。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第十三刀：Movement 转向 Rotation 数值验收
+- 本轮改动部门：`Movement` 验收矩阵。
+- 结论：左右转已不只是 Lua 执行成功，本轮通过 `world-player` 的 `Rotation` 差值证明角色朝向数值真实变化。
+- 实现方式：
+  - 不新增运行时接口，复用已有 `world-player` 输出的 `Rotation`。
+  - 矩阵执行 `movement-turn-left-start` / `movement-turn-right-start`。
+  - 转向后轮询 `world-player`，当 `Rotation` 差值大于阈值 `0.02` 时判定通过。
+  - 每次采样结束后强制执行 `movement-turn-stop`。
+- 在线样本实证：
+  - 左转：`Before=5.273 After=6.229 Delta=0.956`。
+  - 右转：`Before=1.268 After=0.244 Delta=1.024`。
+  - 两次转向后均执行 `movement-turn-stop`，返回 `Action="turn-stop"` 且 `RuntimeReason="LuaExecuteSucceeded"`。
+- 已通过验收命令：
+  - `dotnet build .\src\SpellFire.WowRuntime.Cli\SpellFire.WowRuntime.Cli.csproj -c Debug -p:UseSharedCompilation=false`
+  - `python -m py_compile tools\wowruntime-movement-matrix.py`
+  - `python tools\wowruntime-movement-matrix.py --pid 4120`
+  - `python tools\wowruntime-matrix.py --pid 4120`
+- 边界说明：
+  - 本刀只声明转向动作和朝向读数闭环成立。
+  - `Face/FaceTo` 仍未实现，因为它需要目标点/目标对象到朝向角的计算与容差验收。
+  - `movement-go` 继续返回 `FeatureUnavailable`，仍未进入导航。
+- 仍是未知/未完成字段：
+  - 还没有 `FaceTo(Vector3)` 或 `FaceObject(Guid)` 的稳定接口。
+  - 尚未建立朝向到指定目标点的误差阈值验收。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第十四刀：Movement FaceTo(Vector3) 最小收敛实现
+- 本轮改动部门：`Movement`、CLI、动作层验收矩阵。
+- 结论：`FaceTo(Vector3)` 的最小链路已成立，能从目标点计算目标朝向，并通过左右转动作让角色朝向向目标角收敛。
+- 新增接口：
+  - `IMovementService.FaceTo(Vector3 point)`
+- 新增 CLI 命令：
+  - `movement-face-to --x <float> --y <float> --z <float>`
+- 实现方式：
+  - 读取 `world.GetPlayer()` 得到当前位置和当前 `Rotation`。
+  - 用 `Atan2(targetY - playerY, targetX - playerX)` 计算目标角。
+  - 计算最短角度差，选择 `TurnLeftStart` 或 `TurnRightStart`。
+  - 短轮询当前 `Rotation`，误差小于阈值或越过目标角后停止。
+  - `finally` 中强制 `TurnLeftStop(); TurnRightStop();`，避免转向残留。
+- 在线样本实证：
+  - `movement-face-to` 返回 `Action="face-to"` 且 `RuntimeReason="LuaExecuteSucceeded"`。
+  - 样本一：`FaceStart=5.22 FaceTarget=0.037 FaceStartError=1.1 FaceFinalError=-0.298 FaceSamples=3`。
+  - 聚合矩阵样本：`FaceStart=1.667 FaceTarget=2.767 FaceStartError=1.1 FaceFinalError=-0.326 FaceSamples=3`。
+  - 两次样本都证明误差从约 `1.1` 收敛到约 `0.3`，但尚未达到精准对齐。
+- 已通过验收命令：
+  - `dotnet build .\src\SpellFire.WowRuntime.Cli\SpellFire.WowRuntime.Cli.csproj -c Debug -p:UseSharedCompilation=false`
+  - `python -m py_compile tools\wowruntime-movement-matrix.py`
+  - `python tools\wowruntime-movement-matrix.py --pid 4120`
+  - `python tools\wowruntime-matrix.py --pid 4120`
+- 边界说明：
+  - 本刀声明 `FaceTo` 最小收敛链路成立，不声明精准 Face 控制器完成。
+  - 没有移动角色位置，没有使用 CTM，没有进入路径规划。
+  - `movement-go` 继续返回 `FeatureUnavailable`，仍未进入导航。
+- 仍是未知/未完成字段：
+  - 需要后续做低速/分段转向控制器，把 `FaceFinalError` 收到稳定阈值内，例如 `<= 0.12`。
+  - 还没有 `FaceObject(Guid)`。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第十五刀：FaceTo 分段短脉冲精准化
+- 本轮改动部门：`Movement`、动作层验收矩阵。
+- 结论：`FaceTo(Vector3)` 已从“明显收敛”推进到“稳定进入误差阈值”的可验收控制器。
+- 控制器修正：
+  - 旧逻辑：一次持续转向后读数，容易从 `FaceStartError=1.1` 过冲到 `FaceFinalError≈0.3`。
+  - 新逻辑：按剩余误差选择短脉冲转向时长，执行 `TurnLeftStart/TurnRightStart -> Sleep -> TurnLeftStop/TurnRightStop -> 重读 Rotation`。
+  - 脉冲时长按误差分段：`45ms / 28ms / 18ms / 12ms`。
+  - 最多 24 次采样，误差进入 `<= 0.08` 即停止；矩阵验收阈值收紧到 `<= 0.12`。
+- 在线样本实证：
+  - 独立 Movement 矩阵：`FaceStart=3.945 FaceTarget=5.045 FaceStartError=1.1 FaceFinalError=-0.059 FaceSamples=3`。
+  - 聚合矩阵：`FaceStart=2.54 FaceTarget=3.64 FaceStartError=1.1 FaceFinalError=0.02 FaceSamples=1`。
+  - `FaceFinalError` 已进入 `<= 0.12` 验收阈值。
+- 已通过验收命令：
+  - `dotnet build .\src\SpellFire.WowRuntime.Cli\SpellFire.WowRuntime.Cli.csproj -c Debug -p:UseSharedCompilation=false`
+  - `python -m py_compile tools\wowruntime-movement-matrix.py`
+  - `python tools\wowruntime-movement-matrix.py --pid 4120`
+  - `python tools\wowruntime-matrix.py --pid 4120`
+- 边界说明：
+  - 本刀仍是 Movement 成品化，不移动角色位置，不做路径规划。
+  - `movement-go` 继续返回 `FeatureUnavailable`。
+  - 没有进入导航、RobotManager 或 Product 生命周期。
+- 仍是未知/未完成字段：
+  - 还没有 `FaceObject(Guid)`，但它可以基于已成立的 `ObjectManager.GetObjectByGuid + FaceTo(Vector3)` 实现。
+  - 还没有 CTM Move/ClickToMove 移动专项。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第十六刀：FaceObject(Guid) 对象朝向闭环
+- 本轮改动部门：`Movement`、`ObjectManager` 调用链、CLI、动作层验收矩阵。
+- 结论：`FaceObject(Guid)` 已成立，能通过对象 GUID 读取目标位置，再复用已验证的 `FaceTo(Vector3)` 完成朝向控制。
+- 新增接口：
+  - `IMovementService.FaceObject(ulong guid)`
+- 新增 CLI 命令：
+  - `movement-face-object --guid 0x...`
+- 实现方式：
+  - `ScriptMovementService` 增加 `IObjectManager` 依赖，由 `WowRuntimeFactory` 注入现有对象层实例。
+  - `FaceObject` 调用 `objectManager.GetObjectByGuid(guid)`。
+  - 对象有效后取 `target.Position`，调用 `FaceTo(target.Position)`。
+  - CLI 的 `--guid` 已支持 `0x` 十六进制 WoW GUID，避免高位 GUID 被十进制解析误判为 0。
+- 在线样本实证：
+  - 最近 Unit：`Guid=0xF13000724D002113 Name="温德尔·火花" Kind=Unit`。
+  - `movement-face-object --guid 0xF13000724D002113` 返回 `Action="face-object"` 且 `RuntimeReason="LuaExecuteSucceeded"`。
+  - FaceObject 样本：`FaceStart=1.682 FaceTarget=4.891 FaceStartError=-3.074 FaceFinalError=-0.039 FaceSamples=31`。
+  - `FaceFinalError=-0.039` 已进入 `<= 0.12` 验收阈值。
+- 已通过验收命令：
+  - `dotnet build .\src\SpellFire.WowRuntime.Cli\SpellFire.WowRuntime.Cli.csproj -c Debug -p:UseSharedCompilation=false`
+  - `python -m py_compile tools\wowruntime-movement-matrix.py`
+  - `python tools\wowruntime-movement-matrix.py --pid 4120`
+  - `python tools\wowruntime-matrix.py --pid 4120`
+- 边界说明：
+  - 本刀只做对象朝向，不移动角色位置。
+  - 没有使用 CTM，没有路径规划，没有进入导航。
+  - `movement-go` 继续返回 `FeatureUnavailable`。
+- 仍是未知/未完成字段：
+  - 还没有 CTM Move/ClickToMove 移动专项。
+  - 还没有将 Movement 与导航路径执行绑定。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第十七刀：CTM/ClickToMove 只读诊断基线
+- 本轮改动部门：`Movement`、CLI、动作层验收矩阵。
+- 结论：当前只掌握 CTM 类型只读地址，尚没有可证明安全的 CTM 坐标/触发写入地址；因此本轮不实现 `movement-go`，先固定只读诊断基线。
+- 新增快照：
+  - `ClickToMoveDiagnosticSnapshot`
+- 新增接口：
+  - `IMovementService.GetClickToMoveDiagnostic()`
+- 新增 CLI 命令：
+  - `movement-ctm-diagnostic`
+- 诊断输出字段：
+  - 世界阶段：`Phase / InGame / LoadingOrConnecting`
+  - 玩家位置：`Pos / Rotation`
+  - 移动状态：`InMovement / Flags / SpeedKnown / Speed`
+  - CTM 状态：`ClickToMoveTypeRaw / ClickToMoveState`
+  - 安全边界：`ReadOnly=True CtmWriteKnown=False`
+- 在线样本实证：
+  - `movement-ctm-diagnostic` 输出：`Phase=InWorld InGame=True LoadingOrConnecting=False`
+  - `ClickToMoveTypeRaw=13 ClickToMoveState=None`
+  - `SpeedKnown=True Speed=0`
+  - `Detail="ReadOnly=True CtmWriteKnown=False ClickToMoveTypeRaw=13 ClickToMoveState=None SpeedKnown=True Speed=0"`
+- 已通过验收命令：
+  - `dotnet build .\src\SpellFire.WowRuntime.Cli\SpellFire.WowRuntime.Cli.csproj -c Debug -p:UseSharedCompilation=false`
+  - `python -m py_compile tools\wowruntime-movement-matrix.py`
+  - `python tools\wowruntime-movement-matrix.py --pid 4120`
+  - `python tools\wowruntime-matrix.py --pid 4120`
+- 边界说明：
+  - 本刀不写 CTM，不移动角色位置。
+  - `movement-go` 继续返回 `FeatureUnavailable`。
+  - 后续如要实现 CTM Move，必须先补充坐标写入地址、触发写入地址、停止/回滚策略，并用本诊断命令做前后对照。
+- 仍是未知/未完成字段：
+  - CTM 目标 X/Y/Z 写入地址未知。
+  - CTM action/type 触发写入策略未知。
+  - CTM 停止与异常恢复策略未知。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第十八刀：Movement 成品边界纠偏与世界阶段矩阵
+- 本轮改动部门：`WorldState` 验收矩阵、`Movement`、动作层验收矩阵。
+- 结论：
+  - `Jump / StartMoveForward / StopMove / StopMoveTo / StartTurnLeft / StartTurnRight / StopTurn` 是当前 Movement 成品能力。
+  - `FaceTo(Vector3)` 与 `FaceObject(Guid)` 不再声明为成品能力，已明确降级为 `FeatureUnavailable`。
+  - 原因不是对象层问题，而是基于 `TurnLeft/TurnRight` 的精准朝向控制存在运行时抖动，不能稳定收敛到 `<= 0.12` 误差；继续把它报 OK 属于假成功风险。
+- 纠偏内容：
+  - `FaceTo(Vector3)` 当前返回 `FeatureUnavailable`，说明“精准朝向未稳定到可进入最小 Movement 层”。
+  - `FaceObject(ulong guid)` 当前返回 `FeatureUnavailable`，说明“对象位置读取可用，但对象精准朝向暂不作为成品动作”。
+  - 旧的脉冲转向实现只保留为内部实验路径，不进入 CLI 成品验收。
+  - `FaceDirection(angle)` 已通过 Lua 执行验证，但实测不会改变 `world-player Rotation`，不能作为可用动作证据。
+- 新增验收脚本：
+  - `tools/wowruntime-worldphase-matrix.py`
+  - 已接入 `tools/wowruntime-matrix.py`
+- 世界阶段验收：
+  - `wowruntime-worldphase-watch.py` 默认只读 `world-phase`。
+  - 只有显式传入 `--send-enter-when-not-inworld` 时，才会在非 `InWorld` 阶段向 Wow 主窗口发送回车。
+  - 当前在线样本处于 `InWorld`：`InGame=True LoadingOrConnecting=False EnterCount=0`。
+  - 缺失进程样本稳定返回：`Reason="ProcessUnavailable" Phase=Unknown`。
+- 移速与动作证据：
+  - 静止状态：`InMovement=False SpeedKnown=True Speed=0`。
+  - `movement-forward-start` 后读取：`InMovement=True Flags=Moving SpeedKnown=True Speed=2.5`。
+  - 左转样本：`Rotation` 从 `1.310` 变到 `2.341`，`Delta=1.031`。
+  - 右转样本：`Rotation` 从 `3.626` 变到 `2.655`，`Delta=0.971`。
+  - `movement-jump`、`movement-stop`、`movement-stop-to` 均返回 `RuntimeReason="LuaExecuteSucceeded"`。
+- 已通过验收命令：
+  - `dotnet build .\src\SpellFire.WowRuntime.Cli\SpellFire.WowRuntime.Cli.csproj -c Debug -p:UseSharedCompilation=false`
+  - `python -m py_compile tools\wowruntime-movement-matrix.py tools\wowruntime-worldphase-matrix.py tools\wowruntime-matrix.py`
+  - `python tools\wowruntime-movement-matrix.py --pid 4120`
+  - `python tools\wowruntime-matrix.py --pid 4120`
+- 边界说明：
+  - 本刀没有写 CTM。
+  - 本刀没有实现 `movement-go`。
+  - 本刀没有进入精准 Face、导航、路径规划。
+  - `Movement` 当前成品定义是“可观察基础动作 + 可读状态”，不是“导航前完整运动控制器”。
+- 仍是未知/未完成字段：
+  - CTM 目标 X/Y/Z 写入地址未知。
+  - CTM action/type 触发写入策略未知。
+  - CTM 停止与异常恢复策略未知。
+  - 精准朝向需要后续单独专项，不能夹在当前最小 Movement 成品层中假装完成。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第十九刀：RuntimeWorldSnapshot 聚合摘要收口
+- 本轮改动部门：`WorldState / RuntimeWorldSnapshot`、CLI、对象层验收矩阵。
+- 结论：`RuntimeWorldSnapshot` 不再只是 `ObjectManagerSnapshot` 的薄包装，已补充上层常用的世界摘要字段，避免后续导航或 RobotManager 反复下钻对象列表自行拼状态。
+- 新增/固定字段：
+  - `InWorld`
+  - `HasPlayer`
+  - `HasTarget`
+  - `PlayerCount / UnitCount / GameObjectCount / ItemCount / CorpseCount`
+  - `NearestUnit`
+  - `NearestGameObject`
+- CLI 输出变化：
+  - `world-snapshot` 现在稳定输出 `InWorld / HasPlayer / HasTarget / NearestUnit / NearestGameObject`。
+  - 这些字段仍然只读，不引入导航、路径、产品生命周期。
+- 在线样本实证：
+  - `world-snapshot` 输出：`InWorld=True HasPlayer=True HasTarget=False`。
+  - `NearestUnit=Guid=0xF13000724D002113 ... Kind=Unit ... Dist=7.263`。
+  - `NearestGameObject=Guid=0xF11002EBD50009CF ... Kind=GameObject ... Dist=5.399`。
+  - `ObjectCount=512 PlayerCount=1 UnitCount=145 GameObjectCount=299 ItemCount=63 CorpseCount=0`。
+- 已通过验收命令：
+  - `dotnet build .\src\SpellFire.WowRuntime.Cli\SpellFire.WowRuntime.Cli.csproj -c Debug -p:UseSharedCompilation=false`
+  - `python -m py_compile tools\wowruntime-objectmanager-matrix.py tools\wowruntime-worldphase-matrix.py tools\wowruntime-movement-matrix.py tools\wowruntime-matrix.py`
+  - `python tools\wowruntime-objectmanager-matrix.py --pid 4120`
+  - `python tools\wowruntime-matrix.py --pid 4120`
+- 边界说明：
+  - 本刀只做世界快照聚合，不做对象层写入。
+  - 本刀没有新增导航查询，也没有引入路径规划。
+  - `NearestUnit / NearestGameObject` 只是当前快照内的最近对象摘要，不代表导航目标选择。
+- 仍是未知/未完成字段：
+  - 世界阶段在登录界面、角色列表、加载地图阶段仍需人工/自动切换场景补充样本；当前在线样本是 `InWorld`。
+  - 精准朝向和 CTM 写入仍不进入当前成品层。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第二十刀：Movement 去除精准 Face 实验残留
+- 本轮改动部门：`Movement` 实现层、工厂依赖注入。
+- 结论：`ScriptMovementService` 已从“包含未启用精准 Face 实验代码”收口为只保留当前成品能力的动作服务。
+- 清理内容：
+  - 删除私有 `TryPulseFaceTo` / `TryPulseFaceObject` 实验实现。
+  - 删除 `FormatFaceDetail` / `GetFacePulseMilliseconds` / rotation delta 等只服务于实验 Face 的辅助函数。
+  - 删除 `ScriptMovementService` 对 `IObjectManager` 的构造依赖。
+  - `WowRuntimeFactory` 改为 `new ScriptMovementService(scripts, world)`。
+- 当前 Movement 依赖边界：
+  - 依赖 `IScriptService` 执行真实 Lua 动作。
+  - 依赖 `IWorldState` 读取 MovementState / CTM 只读诊断。
+  - 不依赖 `ObjectManager`。
+  - 不依赖导航或路径规划。
+- 当前成品动作：
+  - `Jump`
+  - `StartMoveForward`
+  - `StopMove`
+  - `StopMoveTo`
+  - `StartTurnLeft`
+  - `StartTurnRight`
+  - `StopTurn`
+  - `GetMovementState`
+  - `GetClickToMoveDiagnostic`
+- 明确不可用动作：
+  - `FaceTo(Vector3)` 返回 `FeatureUnavailable`。
+  - `FaceObject(ulong guid)` 返回 `FeatureUnavailable`。
+  - `Go(...)` 返回 `FeatureUnavailable`。
+- 已通过验收命令：
+  - `dotnet build .\src\SpellFire.WowRuntime.Cli\SpellFire.WowRuntime.Cli.csproj -c Debug -p:UseSharedCompilation=false`
+  - `python tools\wowruntime-matrix.py --pid 4120`
+- 搜索确认：
+  - `rg "TryPulseFace|GetFacePulse|FormatFaceDetail|new ScriptMovementService" src -n`
+  - 结果只剩 `new ScriptMovementService(scripts, world)`，实验 Face 残留已清空。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第二十一刀：WorldPhase Watch 汇总证据增强
+- 本轮改动部门：`WorldState` 验收工具、世界阶段矩阵。
+- 结论：`wowruntime-worldphase-watch.py` 已从“逐行采样日志”增强为“逐行采样 + 汇总证据”，后续验证登录界面、角色列表、加载地图时可以直接用 `PhaseCounts / FirstPhase / LastPhase / EnterCount` 判断阶段变化。
+- 新增输出：
+  - `SUMMARY wowruntime-worldphase-watch`
+  - `FirstPhase`
+  - `LastPhase`
+  - `PhaseCounts`
+  - `EnterCount`
+- 当前在线样本：
+  - `FirstPhase="InWorld"`
+  - `LastPhase="InWorld"`
+  - `PhaseCounts="InWorld:3"`
+  - `EnterCount=0`
+- 缺失进程样本：
+  - `FirstPhase="Unknown"`
+  - `LastPhase="Unknown"`
+  - `PhaseCounts="Unknown:1"`
+  - `Reason="ProcessUnavailable"`
+- 自动回车边界：
+  - 默认不发送回车。
+  - 只有显式传入 `--send-enter-when-not-inworld` 才会在非 `InWorld` 阶段发回车。
+  - `--enter-interval` 和 `--max-enters` 继续限制发键频率，避免工具变成失控输入器。
+- 已通过验收命令：
+  - `python -m py_compile tools\wowruntime-worldphase-watch.py tools\wowruntime-worldphase-matrix.py tools\wowruntime-matrix.py`
+  - `python tools\wowruntime-worldphase-matrix.py --pid 4120`
+  - `python tools\wowruntime-matrix.py --pid 4120`
+- 边界说明：
+  - 本刀没有改变 `MemoryWorldState.GetPhase()` 的地址模型。
+  - 本刀没有制造登录/角色/加载阶段，只强化证据采集工具。
+  - 登录界面、角色列表、加载地图仍需要后续真实场景样本补齐。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第二十二刀：ObjectManager 矩阵成功输出压缩
+- 本轮改动部门：对象层验收矩阵。
+- 结论：`wowruntime-objectmanager-matrix.py` 已改为“成功用例输出摘要化，失败用例保留全量输出”，避免 `object-list` / `object-nearby-list` 在通过时刷出几百行对象明细，影响人工验收和总矩阵阅读。
+- 输出策略：
+  - 成功时保留命令主结果行。
+  - 成功时最多保留前 3 条 `ItemIndex=` 样本。
+  - 成功时追加 `... omitted ItemIndex lines=N` 表示被省略的对象明细行数。
+  - 失败时继续打印原始全量输出，保证定位问题不丢证据。
+- 断言策略：
+  - 没有降低断言覆盖。
+  - 所有 `expected_parts` 仍然在原始输出中匹配，而不是在摘要输出中匹配。
+- 在线样本实证：
+  - `live-object-list-gameobject` 输出前 3 个对象样本，并省略 `297` 条 `ItemIndex`。
+  - `live-object-nearby-list-gameobject` 输出前 3 个对象样本，并省略 `166` 条 `ItemIndex`。
+- 已通过验收命令：
+  - `python -m py_compile tools\wowruntime-objectmanager-matrix.py tools\wowruntime-matrix.py`
+  - `python tools\wowruntime-objectmanager-matrix.py --pid 4120`
+  - `python tools\wowruntime-matrix.py --pid 4120`
+- 边界说明：
+  - 本刀只改验收输出，不改对象层读取逻辑。
+  - 本刀没有改变 `ObjectManager` / `RuntimeWorldSnapshot` 的公共能力。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第二十三刀：PLAN.md 主线状态同步
+- 本轮改动部门：全局规划文档。
+- 结论：`Documentation/PLAN.md` 已同步到当前三部门事实，不再停留在旧的 `Jump / Stop / StopTo` 或 `Face/Move` 模糊描述。
+- 已同步事实：
+  - `ObjectManager` 当前能力为 `Me / Target / ObjectList / GetByGuid / GetByEntry / NearbyObjects / NearestObjects`。
+  - `ObjectManager` 当前边界是只读，不做 Pulsator，不做写入，不接管生命周期。
+  - `Movement` 当前能力为 `Jump / StartMoveForward / Stop / StopTo / TurnLeft / TurnRight / TurnStop / MovementState / CTM 只读诊断`。
+  - `FaceTo / FaceObject / Go` 当前明确返回 `FeatureUnavailable`。
+  - `WorldState / RuntimeWorldSnapshot` 已成为独立聚合层，输出 `Phase / Player / Me / Target / Counts / NearestUnit / NearestGameObject`。
+  - `WorldPhase Watch` 已输出 `FirstPhase / LastPhase / PhaseCounts / EnterCount` 汇总证据。
+- `Immediate Next Mainline` 更新为：
+  - `RobotManager 最小成品前置契约审计`。
+  - 当前不继续扩 ObjectManager 字段，不进入导航，不接官方 Products。
+  - 先审计并固定 `RobotManager` 允许消费的 `WowRuntime` 契约，避免后续 `PulseLoop / ProductContext` 绕开 `WowRuntime` 直连 Hook / MemoryRobot。
+- 已通过验收命令：
+  - `python tools\wowruntime-matrix.py --pid 4120`
+  - `rg "Face/Move|Jump / Stop / StopTo|Immediate Next Mainline|RobotManager 最小成品前置契约审计|WorldPhase Watch" Documentation\PLAN.md Documentation\待办事项\WowRuntime三部门成品化专项.md -n`
+- 边界说明：
+  - 本刀只同步规划，不新增运行时代码。
+  - 本刀没有进入 RobotManager 实现。
+  - 本刀没有进入导航或 Product。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第二十四刀：Movement 前进位移速度实测
+- 本轮改动部门：Movement 验收矩阵。
+- 结论：左右转只能证明朝向变化，不能证明直线移速；本轮已把移速验收拆成独立的 `movement-forward-displacement` 样本，通过 `world-player` 前后坐标差和耗时计算真实位移速度。
+- 新增验收逻辑：
+  - 先读取 `world-player` 得到 `Before Pos`。
+  - 执行 `movement-forward-start`。
+  - 等待约 1 秒后再次读取 `world-player` 得到 `After Pos`。
+  - 无论成功或失败，最后都执行 `movement-stop`。
+  - 计算 `Distance / ElapsedMs / ComputedSpeed`。
+- 在线样本实证：
+  - `Before=(5769.018,689.706,642.557)`。
+  - `After=(5773.853,695.307,642.254)`。
+  - `Distance=7.405`。
+  - `ElapsedMs=1001`。
+  - `ComputedSpeed=7.401`。
+  - 同轮 `movement-state` 仍返回 `InMovement=True Flags=Moving SpeedKnown=True Speed=2.5`，说明“字段速度”和“位移速度”是两条不同证据链。
+- 已通过验收命令：
+  - `python -m py_compile tools\wowruntime-movement-matrix.py`
+  - `python tools\wowruntime-movement-matrix.py --pid 4120`
+- 边界说明：
+  - 本刀没有修改运行时代码，只强化验收矩阵。
+  - 转向验收继续只看 `Rotation` 差值，不再被当作移速证明。
+  - `ComputedSpeed` 是坐标差推导值，受地形、客户端采样间隔、起停延迟影响，不等同于内存字段 `Speed`。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第二十五刀：RobotManager 前置契约守卫
+- 本轮改动部门：规划与契约守卫。
+- 结论：`RobotManager` 进入最小接口草案前，已先建立“只能消费 WowRuntime、不能直连底层”的守卫，避免 `PulseLoop / ProductContext` 后续绕开语义层直接摸 Hook 或 MemoryRobot。
+- 新增文档：
+  - `Documentation/待办事项/RobotManager最小成品前置契约审计.md`
+- 新增脚本：
+  - `tools/robotmanager-contract-guard.py`
+- 当前扫描范围：
+  - `src/SpellFire.WowRuntime/Bot`
+  - 未来如果存在 `src/SpellFire.RobotManager`，自动纳入扫描。
+- 禁止依赖：
+  - `SpellFire.MemoryRobot`
+  - `SpellFire.Hook`
+  - `SpellFire.RuntimeHost`
+  - `SpellFire.Runtime`
+  - `IRuntimeFacade`
+  - `RuntimeCompositionRoot`
+  - `RemoteThread / LoadLibrary / FreeLibrary / HookCommand`
+- 已通过验收命令：
+  - `python -m py_compile tools\robotmanager-contract-guard.py`
+  - `python tools\robotmanager-contract-guard.py`
+- 当前守卫结果：
+  - `OK robotmanager-contract-guard Files=6`
+  - 扫描 `src/SpellFire.WowRuntime/Bot` 下 6 个文件，无底层直连违规。
+- 边界说明：
+  - 本刀没有实现 `RobotManager`。
+  - 本刀没有新增 Product / Quest / Gather / Combat 占位。
+  - 本刀没有进入导航。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：仅文档和守卫，不实现运行时代码。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第二十六刀：RobotManager 最小接口草案
+- 本轮改动部门：RobotManager 独立项目与最小接口。
+- 结论：`SpellFire.RobotManager` 已作为独立 `net48/x86` 项目落地，只引用 `SpellFire.WowRuntime`，没有引用 `MemoryRobot / Hook / RuntimeHost / Runtime`。
+- 新增项目：
+  - `src/SpellFire.RobotManager/SpellFire.RobotManager.csproj`
+  - 已加入 `SpellFireWPF_Plus.sln`
+- 最小接口与模型：
+  - `IRobotManager`
+  - `IProduct`
+  - `ProductContext`
+  - `ProductState`
+  - `RobotManagerResult`
+  - `RobotManagerStatus`
+  - `RobotManager`
+- 内置测试件：
+  - `Testing/NoopProduct.cs`
+  - 只用于验证 `Start / Pulse / Pause / Resume / Stop` 生命周期形状。
+- 关键边界：
+  - `ProductContext` 不公开完整 `IWowRuntime` 本体。
+  - Product 只能访问 `World / WorldSnapshots / ObjectManager / Movement / Scripts / Snapshot / ProcessId`。
+  - 不公开 `Navigation`。
+  - 不公开 Hook、MemoryRobot、RuntimeFacade。
+- 新增验收脚本：
+  - `tools/robotmanager-minimal-matrix.py`
+- 验收覆盖：
+  - 项目引用必须只有 `..\SpellFire.WowRuntime\SpellFire.WowRuntime.csproj`。
+  - 必需接口文件存在。
+  - `robotmanager-contract-guard.py` 通过。
+  - `dotnet build src\SpellFire.RobotManager\SpellFire.RobotManager.csproj` 通过。
+- 已通过验收命令：
+  - `python -m py_compile tools\robotmanager-contract-guard.py tools\robotmanager-minimal-matrix.py`
+  - `python tools\robotmanager-minimal-matrix.py`
+  - `dotnet build .\src\SpellFire.RobotManager\SpellFire.RobotManager.csproj -c Debug -p:UseSharedCompilation=false`
+- 边界说明：
+  - 本刀没有接官方 Products。
+  - 本刀没有实现导航或路径规划。
+  - 本刀没有新增 Quest / Gather / Combat 占位。
+  - 本刀没有把 RobotManager 接入 WowRuntime 主流程。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：是，最小接口草案与独立项目。
+- 是否触碰 Product：仅内置 `NoopProduct` 测试件，不是外部产品体系。
+
+### 2026-07-06 第二十七刀：RobotManager 最小 PulseLoop 运行验收
+- 本轮改动部门：RobotManager 验收 CLI 与矩阵。
+- 结论：`RobotManager` 已不只是可编译接口，本轮已通过内置 `NoopProduct` 跑通最小生命周期：`Start -> PulseOnce -> Pause -> Resume -> PulseOnce -> Stop`。
+- 新增项目：
+  - `src/SpellFire.RobotManager.Cli/SpellFire.RobotManager.Cli.csproj`
+  - 已加入 `SpellFireWPF_Plus.sln`
+- 新增命令：
+  - `noop-lifecycle`
+- 生命周期断言：
+  - `Start=True:Ready`
+  - `Pulse1=True:Ready`
+  - `Pause=True:Ready`
+  - `PausedPulse=False:Paused`
+  - `Resume=True:Ready`
+  - `Pulse2=True:Ready`
+  - `Stop=True:Ready`
+  - `AfterStopPulse=False:NoProduct`
+  - `PulseCount=2`
+  - `ProductState=Stopped`
+- 矩阵扩展：
+  - `tools/robotmanager-minimal-matrix.py --pid <WowPid>`
+  - 验证 RobotManager 项目引用。
+  - 验证 RobotManager.Cli 项目引用。
+  - 执行契约守卫。
+  - 构建 RobotManager。
+  - 构建 RobotManager.Cli。
+  - 执行 `noop-lifecycle`。
+- 已通过验收命令：
+  - `python -m py_compile tools\robotmanager-contract-guard.py tools\robotmanager-minimal-matrix.py`
+  - `python tools\robotmanager-minimal-matrix.py --pid 4120`
+- 在线样本：
+  - `Result=OK Command="noop-lifecycle" ProcessId=4120 Ready=True Reason="LifecycleVerified" Product="NoopProduct" ProductState=Stopped PulseCount=2 Start=True:Ready Pulse1=True:Ready Pause=True:Ready PausedPulse=False:Paused Resume=True:Ready Pulse2=True:Ready Stop=True:Ready AfterStopPulse=False:NoProduct`
+- 边界说明：
+  - 本刀没有接官方 Products。
+  - 本刀没有实现外部产品加载。
+  - 本刀没有进入导航。
+  - 本刀没有让 Product 直连 Hook / MemoryRobot / RuntimeFacade。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：是，新增最小生命周期验收 CLI。
+- 是否触碰 Product：仅内置 `NoopProduct` 测试件，不是外部产品体系。
+
+### 2026-07-06 第二十八刀：RobotManager 状态机硬化
+- 本轮改动部门：RobotManager 状态机、测试产品、CLI 与矩阵。
+- 结论：`RobotManager` 已补上最小状态机硬化证据，覆盖重复启动、重复停止、异常转 Faulted、Faulted 后拒绝 Pulse/Pause/Resume、Faulted 后 Stop 清理。
+- 新增/调整模型：
+  - `RobotManagerStatus.Faulted`
+  - `IProductFaultSink`
+  - `NoopProduct` 实现 `IProductFaultSink`
+  - `ThrowingProduct` 用于合成异常测试
+- 状态机规则：
+  - 已加载任意 Product 后，再次 `Start` 返回 `ProductAlreadyRunning`。
+  - 无 Product 时 `Stop` 返回 `NoProduct`。
+  - Product 操作抛异常时返回 `ProductError`，并通过 `IProductFaultSink.MarkFaulted()` 标记 Product 为 `Faulted`。
+  - `Faulted` 后 `Pulse / Pause / Resume` 均返回 `Faulted`。
+  - `Faulted` 后仍允许 `Stop` 执行清理，Stop 后再次 Pulse 返回 `NoProduct`。
+- CLI 新增命令：
+  - `state-machine-hardening`
+- 矩阵新增断言：
+  - `DuplicateStart=False:ProductAlreadyRunning`
+  - `DuplicateStop=False:NoProduct`
+  - `FaultPulse=False:ProductError`
+  - `FaultedPulse=False:Faulted`
+  - `FaultedPause=False:Faulted`
+  - `FaultedResume=False:Faulted`
+  - `FaultedStop=True:Ready`
+  - `AfterFaultStopPulse=False:NoProduct`
+- 已通过验收命令：
+  - `python -m py_compile tools\robotmanager-contract-guard.py tools\robotmanager-minimal-matrix.py tools\wowruntime-movement-matrix.py`
+  - `python tools\robotmanager-minimal-matrix.py --pid 4120`
+  - `python tools\robotmanager-contract-guard.py`
+- 在线样本：
+  - `Result=OK Command="state-machine-hardening" ProcessId=4120 Ready=True Reason="StateMachineHardened" DuplicateStart=False:ProductAlreadyRunning DuplicateStop=False:NoProduct FaultPulse=False:ProductError FaultedPulse=False:Faulted FaultedPause=False:Faulted FaultedResume=False:Faulted FaultedStop=True:Ready AfterFaultStopPulse=False:NoProduct FaultProductState=Stopped`
+- 额外验证说明：
+  - 本轮尝试运行 `python tools\wowruntime-matrix.py --pid 4120`，但当前 Wow 进程对象层持续返回 `ReadProcessMemory Win32Error=299`。
+  - 单独验证 `movement-stop` / Hook Lua 通道仍返回 OK。
+  - 因此本轮未把 WowRuntime 总矩阵失败判定为 RobotManager 退化；失败点在当前目标进程对象层读现场，而不是 RobotManager 代码路径。
+- 边界说明：
+  - 本刀没有接官方 Products。
+  - 本刀没有实现外部产品加载。
+  - 本刀没有进入导航。
+  - 本刀没有让 Product 直连 Hook / MemoryRobot / RuntimeFacade。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：是，状态机硬化。
+- 是否触碰 Product：仅内置测试产品，不是外部产品体系。
+
+### 2026-07-06 第二十九刀：RobotManager 最小定时 PulseLoop
+- 本轮改动部门：RobotManager PulseLoop、CLI 与矩阵。
+- 结论：`RobotManager` 已具备最小定时 `PulseLoop`，可以按固定间隔在后台调用 `PulseOnce()`，可启动、可停止，并通过脚本证明至少多次 Pulse。
+- 新增模型：
+  - `RobotPulseLoop`
+  - `RobotPulseLoopResult`
+- 实现边界：
+  - `RobotPulseLoop` 只接收 `IRobotManager`。
+  - 不加载外部 Product。
+  - 不接官方 Products。
+  - 不直接访问 Hook / MemoryRobot / RuntimeFacade。
+  - 循环内只调用 `manager.PulseOnce()`。
+- CLI 新增命令：
+  - `timed-pulse-loop`
+- 矩阵新增断言：
+  - `Reason="TimedPulseLoopVerified"`
+  - `Product="TimedPulseProduct"`
+  - `ProductState=Stopped`
+  - `LoopRunning=False`
+  - `StartLoop=True:Ready`
+  - `StopLoop=True:Ready`
+  - `StopProduct=True:Ready`
+  - `ProductPulseCount=`
+- 在线样本：
+  - `Result=OK Command="timed-pulse-loop" ProcessId=4120 Ready=True Reason="TimedPulseLoopVerified" Product="TimedPulseProduct" ProductState=Stopped LoopRunning=False LoopPulseCount=5 ProductPulseCount=5 LastPulseUtcTicks=639189300860686968 StartProduct=True:Ready StartLoop=True:Ready StopLoop=True:Ready StopProduct=True:Ready`
+- 已通过验收命令：
+  - `python -m py_compile tools\robotmanager-contract-guard.py tools\robotmanager-minimal-matrix.py`
+  - `python tools\robotmanager-minimal-matrix.py --pid 4120`
+  - `python tools\robotmanager-contract-guard.py`
+- 边界说明：
+  - 本刀没有接官方 Products。
+  - 本刀没有实现外部产品加载。
+  - 本刀没有进入导航。
+  - 本刀没有让 Product 直连 Hook / MemoryRobot / RuntimeFacade。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：是，最小定时 PulseLoop。
+- 是否触碰 Product：仅内置 `NoopProduct` 测试件，不是外部产品体系。
+
+### 2026-07-06 第三十刀：RobotManager 最小上下文感知测试 Product
+- 本轮改动部门：RobotManager 内置测试 Product、CLI 与矩阵。
+- 结论：已证明 Product 可以通过 `ProductContext` 消费 `WowRuntime`，而不是直连 Hook / MemoryRobot / RuntimeFacade。
+- 新增测试 Product：
+  - `ContextProbeProduct`
+- ProductContext 使用面：
+  - `context.Scripts.Execute(...)`
+  - `context.WorldSnapshots.Capture(...)`
+- CLI 新增命令：
+  - `context-probe-product`
+- 矩阵新增断言：
+  - `Reason="ContextProbeVerified"`
+  - `Product="ContextProbeProduct"`
+  - `ProductState=Stopped`
+  - `PulseCount=1`
+  - `ScriptExecuted=True`
+  - `ScriptReason="LuaExecuteSucceeded"`
+  - `SnapshotAttempted=True`
+  - `Start=True:Ready`
+  - `Pulse=True:Ready`
+  - `Stop=True:Ready`
+- 脚本体验改进：
+  - `tools/robotmanager-minimal-matrix.py` 在未传 `--pid` 时会自动选择最新 `Wow` 进程。
+- 在线样本：
+  - `INFO robotmanager-minimal-matrix AutoPid=6660`
+  - `Result=OK Command="context-probe-product" ProcessId=6660 Ready=True Reason="ContextProbeVerified" Product="ContextProbeProduct" ProductState=Stopped PulseCount=1 ScriptExecuted=True ScriptReason="LuaExecuteSucceeded" SnapshotAttempted=True SnapshotSucceeded=False SnapshotStatus="ReadFailed" InWorld=False HasPlayer=False ObjectCount=0 Start=True:Ready Pulse=True:Ready Stop=True:Ready`
+- 关键解释：
+  - `ScriptExecuted=True` 是本刀主证据，证明 Product 经 `ProductContext.Scripts` 调用了 WowRuntime Scripting。
+  - `SnapshotAttempted=True` 证明 Product 经 `ProductContext.WorldSnapshots` 尝试读取世界快照。
+  - 当前现场对象层仍可能返回 `ReadFailed`，因此 `SnapshotSucceeded=False` 不作为本刀失败条件；该问题属于对象层现场状态，不是 ProductContext 契约失败。
+- 已通过验收命令：
+  - `python -m py_compile tools\robotmanager-contract-guard.py tools\robotmanager-minimal-matrix.py`
+  - `python tools\robotmanager-minimal-matrix.py`
+  - `python tools\robotmanager-contract-guard.py`
+- 边界说明：
+  - 本刀没有接官方 Products。
+  - 本刀没有实现外部产品加载。
+  - 本刀没有进入导航。
+  - 本刀没有让 Product 直连 Hook / MemoryRobot / RuntimeFacade。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：是，新增上下文感知内置测试 Product。
+- 是否触碰 Product：仅内置测试件，不是外部产品体系。
+
+### 2026-07-06 第三十一刀：RobotManager ProductContext 契约冻结
+- 本轮改动部门：RobotManager 契约守卫、ProductContext 注释与矩阵验证。
+- 结论：`ProductContext` 对 Product 的暴露面已冻结，并由 `robotmanager-contract-guard.py` 自动验证，避免后续产品体系扩张时重新穿透到底层。
+- 当前允许公开成员：
+  - `ProductContext(...)`
+  - `ProcessId`
+  - `World`
+  - `WorldSnapshots`
+  - `ObjectManager`
+  - `Movement`
+  - `Scripts`
+  - `Snapshot()`
+- 明确禁止公开：
+  - `IWowRuntime`
+  - `INavigationService`
+  - `IRuntimeFacade`
+  - `IMemoryRobot`
+  - `RuntimeHost`
+  - `Hook`
+- 守卫增强：
+  - `robotmanager-contract-guard.py` 现在会解析 `ProductContext.cs` 的 public 成员。
+  - 出现非白名单 public 成员会失败：`ProductContextPublicMember:<Name>`。
+  - 出现禁止公开类型会失败。
+- 代码标注：
+  - `ProductContext` 已加注释，明确它是 Product-facing contract，必须保持窄接口。
+- 已通过验收命令：
+  - `python -m py_compile tools\robotmanager-contract-guard.py tools\robotmanager-minimal-matrix.py`
+  - `python tools\robotmanager-contract-guard.py`
+  - `python tools\robotmanager-minimal-matrix.py`
+- 在线样本：
+  - `OK robotmanager-contract-guard Files=21`
+  - `OK robotmanager-minimal-matrix`
+- 边界说明：
+  - `SpellFire.RobotManager.Cli` 是验收壳，允许通过 `WowRuntimeFactory` 创建运行时。
+  - `SpellFire.RobotManager` 本体仍不引用 Hook / MemoryRobot / RuntimeHost / RuntimeFacade。
+  - 本刀没有接官方 Products。
+  - 本刀没有进入导航。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：是，冻结 ProductContext 契约。
+- 是否触碰 Product：仅内置测试件，不是外部产品体系。
+
+### 2026-07-06 第三十二刀：RobotManager 最小成品收口审计
+- 本轮改动部门：RobotManager 收口审计、矩阵与文档。
+- 结论：`RobotManager` 最小成品范围已收口通过，当前可作为后续 Product 体系前置地基；继续加功能前应先整理变更并做提交前审计。
+- 当前最小成品组成：
+  - `SpellFire.RobotManager` 独立项目。
+  - `SpellFire.RobotManager.Cli` 验收壳。
+  - `IRobotManager / IProduct / ProductContext`。
+  - `RobotManager` 生命周期：`Start / PulseOnce / Pause / Resume / Stop`。
+  - `RobotPulseLoop` 定时循环。
+  - `RobotManagerStatus / ProductState / RobotManagerResult / RobotPulseLoopResult`。
+  - `IProductFaultSink` 异常标记。
+  - 内置测试件：`NoopProduct / ThrowingProduct / ContextProbeProduct`。
+- 当前验收入口：
+  - `python tools\robotmanager-contract-guard.py`
+  - `python tools\robotmanager-minimal-matrix.py`
+- 矩阵覆盖：
+  - 项目引用检查。
+  - 必需文件检查。
+  - 契约守卫。
+  - RobotManager 构建。
+  - RobotManager.Cli 构建。
+  - `noop-lifecycle`。
+  - `state-machine-hardening`。
+  - `timed-pulse-loop`。
+  - `context-probe-product`。
+- 本轮补齐：
+  - `tools/robotmanager-minimal-matrix.py` 必需文件清单加入 `ContextProbeProduct.cs`。
+  - `Documentation/待办事项/RobotManager最小成品前置契约审计.md` 同步当前最小成品事实和验收入口。
+- 已通过验收命令：
+  - `python -m py_compile tools\robotmanager-contract-guard.py tools\robotmanager-minimal-matrix.py`
+  - `python tools\robotmanager-contract-guard.py`
+  - `python tools\robotmanager-minimal-matrix.py`
+- 在线样本：
+  - `OK robotmanager-contract-guard Files=21`
+  - `OK robotmanager-minimal-matrix`
+- 明确不包含：
+  - 官方 Products 兼容。
+  - 外部产品加载器。
+  - Quest / Gather / Combat 占位。
+  - 导航。
+  - CTM 写入。
+  - Product 直连 Hook / MemoryRobot / RuntimeFacade。
+- 下一步：
+  - 变更整理与提交前审计。
+  - 按主题拆分未提交改动。
+  - 确认不夹带导航、官方 Products、Quest/Gather/Combat。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：是，最小成品收口。
+- 是否触碰 Product：仅内置测试件，不是外部产品体系。
+
+### 2026-07-06 第三十三刀：Movement 移速验收硬门槛
+- 本轮改动部门：`Movement` CLI 验收、动作层矩阵。
+- 结论：左右转镜头、朝向变化、Lua 动作成功都不能证明移速；移速必须由位置位移或 `SpeedMoving` 读数证明。
+- 新增正式 CLI：
+  - `movement-speed-sample`
+- 验收语义：
+  - 先读取 `world-player` 起点。
+  - 执行 `movement-forward-start`。
+  - 约 1 秒后读取 `world-player` 终点，并读取 `movement-state`。
+  - `finally` 中强制执行 `movement-stop`。
+  - 只有位置位移 `Distance / Duration` 成立，才返回 `Moved=True`。
+  - `SpeedKnown=True && Speed>0.3` 只能作为辅助观测字段，不能替代坐标位移证明。
+  - 两类证据都不可读时必须失败，禁止把转向或脚本 ACK 当作移速证据。
+- 输出字段：
+  - `StartPos`
+  - `EndPos`
+  - `Distance`
+  - `DurationMs`
+  - `ComputedSpeed`
+  - `StateSpeedKnown`
+  - `StateSpeed`
+  - `Moved`
+  - `PositionSample`
+  - `StateSample`
+- 当前实测样本：
+  - `world-phase` 返回 `Phase=InWorld InGame=True LoadingOrConnecting=False`。
+  - `movement-speed-sample` 返回 `Result=Fail`。
+  - 失败原因：`Forward movement ran, but neither position displacement nor SpeedMoving was readable.`
+  - `PositionSample` 显示前后两次 `world-player` 均失败：`ReadProcessMemory Win32Error=299`。
+  - `StateSample` 显示：`SpeedKnown=False Speed=0`。
+  - `StartActionReason="LuaExecuteSucceeded"` 只能证明 Lua 前进命令已执行，不能证明移速。
+- 已通过验收命令：
+  - `dotnet build .\src\SpellFire.WowRuntime.Cli\SpellFire.WowRuntime.Cli.csproj -c Debug -p:UseSharedCompilation=false`
+  - `python -m py_compile tools\wowruntime-movement-matrix.py`
+- 已调整矩阵：
+  - `wowruntime-movement-matrix.py` 的前进位移验收改为调用正式 `movement-speed-sample`。
+  - 矩阵必须看到 `Moved=True / Distance / ComputedSpeed` 才算通过。
+- 边界说明：
+  - 当前进程下不能宣称移速已验证。
+  - 后续要先修复对象/玩家读取链，或让 `SpeedMoving` 稳定可读，再回到移速验收。
+  - 转向、朝向、Jump、Lua ACK 与移速验收分开记录。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第三十四刀：ObjectManager 299 根因定位与链表截断修复
+- 本轮改动部门：`ObjectManager`、`WorldState`、CLI 诊断、对象层矩阵。
+- 结论：上一轮 `world-player / movement-speed-sample` 的 299 不是 Lua 或 Movement 问题，而是对象链默认扫描到尾部坏 `NextObject` 指针时把整个快照打失败。
+- 新增正式 CLI：
+  - `object-diagnostic`
+- 诊断输出字段：
+  - `Stage`
+  - `ClientConnection`
+  - `ObjectManager`
+  - `LocalGuid`
+  - `TargetGuid`
+  - `FirstObject`
+  - `Scanned`
+  - `ReadableObjects`
+  - `FailedObjects`
+  - `FirstFailedObject`
+  - `FirstFailedStage`
+  - `FirstFailedDetail`
+- 实测定位：
+  - `object-diagnostic --scan-limit 64` 可读，说明对象链前段没有问题。
+  - `object-diagnostic --scan-limit 512` 定位到 `Stage="NextObject"`，`ReadProcessMemory Win32Error=299`。
+  - 修复前 `object-snapshot --scan-limit 512` 整体失败，导致 `world-player` 和移速验收失败。
+- 修复策略：
+  - `MemoryObjectManager.ReadSnapshot()` 在读取下一节点指针失败时截断扫描并返回已读快照。
+  - 不再因为尾部坏链表节点让 `Me / WorldPlayer / MovementSpeed` 整体失败。
+  - `MemoryWorldState.GetPlayer()` 修正静态玩家地址兜底语义：地址表没有 `PlayerX/Y/Z` 时不再错误读取空地址。
+- 当前实测样本：
+  - `object-snapshot` 返回 `Me=Guid=0x10 ... Kind=Player Pos=(5813.732,782.458,661.323)`。
+  - `world-player` 返回 `Ready=True ... Pos=(5813.732,782.458,661.323) Rotation=1.261`。
+  - `movement-speed-sample` 返回 `Moved=True StateSpeedKnown=True StateSpeed=7`。
+  - 某次位移样本返回 `Distance=4.418 ComputedSpeed=1.596`，后续静止位置样本不能再仅凭 `SpeedMoving=7` 证明动作期移速。
+- 已通过验收命令：
+  - `dotnet build .\src\SpellFire.WowRuntime.Cli\SpellFire.WowRuntime.Cli.csproj -c Debug -p:UseSharedCompilation=false`
+  - `python -m py_compile tools\wowruntime-objectmanager-matrix.py tools\wowruntime-movement-matrix.py`
+  - `python tools\wowruntime-objectmanager-matrix.py`
+  - `python tools\wowruntime-movement-matrix.py`
+  - `python tools\wowruntime-matrix.py`
+- 矩阵修正：
+  - 对象层矩阵新增 `live-object-diagnostic`。
+  - Unit 过滤验收改用 `object-list --kind Unit`。
+  - `Scanned=512` 旧断言移除；扫描允许因坏尾链安全截断，只要求输出 `Scanned=`。
+- 边界说明：
+  - 尾部坏链截断是只读对象层稳定策略，不是隐藏失败；`object-diagnostic` 仍保留坏链阶段证据。
+  - 这不是导航实现，也不是 CTM 写入。
+  - `FaceTo / FaceObject` 仍保持 `FeatureUnavailable`，不在本刀恢复。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第三十五刀：Movement 四向移动最小成品验收
+- 本轮改动部门：`Movement`、CLI、动作层矩阵。
+- 结论：`Movement` 最小动作层已从“前进 + 转向”扩展为四向基础移动，且每个方向都必须有速度/位移证据和自动停止保护。
+- 新增接口：
+  - `IMovementService.StartMoveBackward()`
+  - `IMovementService.StartStrafeLeft()`
+  - `IMovementService.StartStrafeRight()`
+- 新增 CLI：
+  - `movement-backward-start`
+  - `movement-strafe-left-start`
+  - `movement-strafe-right-start`
+- 扩展 CLI：
+  - `movement-speed-sample --action forward`
+  - `movement-speed-sample --action backward`
+  - `movement-speed-sample --action strafe-left`
+  - `movement-speed-sample --action strafe-right`
+- Lua 动作：
+  - `MoveBackwardStart(); DEFAULT_CHAT_FRAME:AddMessage("SPELLFIRE_MOVE_BACKWARD_START_OK");`
+  - `StrafeLeftStart(); DEFAULT_CHAT_FRAME:AddMessage("SPELLFIRE_MOVE_STRAFE_LEFT_START_OK");`
+  - `StrafeRightStart(); DEFAULT_CHAT_FRAME:AddMessage("SPELLFIRE_MOVE_STRAFE_RIGHT_START_OK");`
+- 停止保护：
+  - `movement-speed-sample` 每次动作后在 `finally` 中调用 `movement-stop`。
+  - `movement-stop` 继续统一停止 `MoveForward / MoveBackward / StrafeLeft / StrafeRight / Ascend / TurnLeft / TurnRight`。
+- 当前实测样本：
+  - `forward`：`Action="forward-start"`，`Moved=True`，`StateSpeed=7`。
+  - `backward`：`Action="backward-start"`，`Moved=True`，`StateSpeed=4.5`，出现真实位置位移。
+  - `strafe-left`：`Action="strafe-left-start"`，`Moved=True`，`StateSpeed=7`，出现真实位置位移。
+  - `strafe-right`：`Action="strafe-right-start"`，`Moved=True`，`StateSpeed=7`，出现真实位置位移。
+- 已通过验收命令：
+  - `dotnet build .\src\SpellFire.WowRuntime.Cli\SpellFire.WowRuntime.Cli.csproj -c Debug -p:UseSharedCompilation=false`
+  - `python -m py_compile tools\wowruntime-movement-matrix.py`
+  - `python tools\wowruntime-movement-matrix.py`
+  - `python tools\wowruntime-matrix.py`
+  - `python tools\runtime-facade-matrix.py`
+- 运行事实：
+  - 第一次总矩阵执行期间，角色被移动到世界外/加载态，`Phase=LoginOrCharacterList`，对象层和 Movement live 验收按预期失败。
+  - 按测试规则发送回车后进入 `LoadingOrConnecting`，随后恢复 `Phase=InWorld`。
+  - 重新运行 `python tools\wowruntime-matrix.py` 后通过。
+- 边界说明：
+  - 本刀仍不是导航。
+  - 本刀没有实现 `Movement.Go`。
+  - 本刀没有 CTM 写入。
+  - `FaceTo / FaceObject` 继续保持 `FeatureUnavailable`，直到精准朝向控制专项重新进入。
+  - 四向移动是后续导航/RobotManager 的动作原语，不代表路径规划完成。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第三十六刀：Movement 四向测速输出语义收口
+- 本轮改动部门：`Movement` CLI 输出语义、动作层矩阵。
+- 结论：四向移动能力没有继续扩面，本刀只修正验收输出语义，防止后退/平移样本仍显示 `Forward movement...` 造成假证据。
+- 修复点：
+  - 旧输出曾为 `Backward movement produced measurable speed evidence.`，第三十七刀后已收紧为位移测速文案。
+  - 旧输出曾为 `Strafe-left movement produced measurable speed evidence.`，第三十七刀后已收紧为位移测速文案。
+  - 旧输出曾为 `Strafe-right movement produced measurable speed evidence.`，第三十七刀后已收紧为位移测速文案。
+  - 未知动作仍返回 `InvalidArgument`，合法动作限定为 `forward / backward / strafe-left / strafe-right`。
+- 矩阵增强：
+  - `wowruntime-movement-matrix.py` 现在不仅断言 `Moved=True / Distance / ComputedSpeed / Action`。
+  - 还会断言每个方向对应的 `Detail` 文案，避免四向动作共用错误语义。
+- 当前实测样本：
+  - 旧样本 `forward`：`Detail="Forward movement produced measurable speed evidence."`
+  - 旧样本 `backward`：`Detail="Backward movement produced measurable speed evidence."`
+  - 旧样本 `strafe-left`：`Detail="Strafe-left movement produced measurable speed evidence."`
+  - 旧样本 `strafe-right`：`Detail="Strafe-right movement produced measurable speed evidence."`
+- 已通过验收命令：
+  - `dotnet build .\src\SpellFire.WowRuntime.Cli\SpellFire.WowRuntime.Cli.csproj -c Debug -p:UseSharedCompilation=false`
+  - `python -m py_compile tools\wowruntime-movement-matrix.py`
+  - `python tools\wowruntime-movement-matrix.py`
+  - `python tools\wowruntime-matrix.py`
+  - `python tools\runtime-facade-matrix.py`
+- 边界说明：
+  - 本刀不新增 Movement 能力。
+  - 本刀不进入导航。
+  - 本刀不实现 CTM 写入。
+  - 本刀不恢复 `FaceTo / FaceObject`。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
+### 2026-07-06 第三十七刀：Movement 平移测速硬门槛修正
+- 本轮改动部门：`Movement` CLI、动作层矩阵、Movement 契约文档。
+- 结论：左右转镜头、朝向变化、Lua ACK、`StateSpeed > 0` 都不能单独证明平移移速；`movement-speed-sample` 现在必须看到真实坐标位移。
+- 规则修正：
+  - `Moved=True` 只允许由 `Distance > 0.3 && ComputedSpeed > 0.3` 得出。
+  - `StateSpeedKnown / StateSpeed` 继续输出，但只作为辅助观测字段。
+  - `movement-speed-sample` 的成功文案改为 `movement produced measurable displacement speed evidence`。
+- 矩阵修正：
+  - `wowruntime-movement-matrix.py` 不再只检查 `Distance=` / `ComputedSpeed=` 字段存在。
+  - 现在解析数值并断言 `Distance > 0.3`、`ComputedSpeed > 0.3`。
+- 契约守卫：
+  - `wowruntime-movement-contract-guard.py` 已加入位移硬门槛片段，防止后续回退到 `StateSpeed` 单独判定。
+- 边界说明：
+  - 转向样本继续只证明朝向变化。
+  - 平移移速必须由 `StartPos / EndPos / Distance / DurationMs / ComputedSpeed` 证明。
+- 是否触碰导航：否。
+- 是否触碰 RobotManager：否。
+- 是否触碰 Product：否。
+
 ## 明确不做
 - 不参考 `WR.Next`。
 - 不进入导航设计。

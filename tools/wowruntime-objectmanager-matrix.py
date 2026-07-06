@@ -5,6 +5,35 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "src" / "SpellFire.WowRuntime.Cli" / "bin" / "Debug" / "net48" / "SpellFire.WowRuntime.Cli.exe"
+MAX_SUCCESS_ITEM_LINES = 3
+
+
+def summarize_output(output):
+    if not output:
+        return ""
+
+    lines = output.splitlines()
+    if len(lines) <= 1:
+        return output
+
+    kept = []
+    item_count = 0
+    omitted = 0
+    for line in lines:
+        if line.startswith("ItemIndex="):
+            item_count += 1
+            if item_count <= MAX_SUCCESS_ITEM_LINES:
+                kept.append(line)
+            else:
+                omitted += 1
+            continue
+
+        kept.append(line)
+
+    if omitted > 0:
+        kept.append(f"... omitted ItemIndex lines={omitted}")
+
+    return "\n".join(kept)
 
 
 def run_case(name, command, pid, expected_exit, expected_parts, extra=None):
@@ -22,14 +51,17 @@ def run_case(name, command, pid, expected_exit, expected_parts, extra=None):
         capture_output=True,
     )
     output = (completed.stdout + completed.stderr).strip()
-    if output:
-        print(output)
 
     ok = completed.returncode == expected_exit and all(part in output for part in expected_parts)
     if ok:
+        summary = summarize_output(output)
+        if summary:
+            print(summary)
         print(f"OK wowruntime-objectmanager-case Name={name} Exit={completed.returncode}")
         return True
 
+    if output:
+        print(output)
     print(f"FAIL wowruntime-objectmanager-case Name={name} Exit={completed.returncode} ExpectedExit={expected_exit}")
     for part in expected_parts:
         if part not in output:
@@ -131,6 +163,14 @@ def main():
             return 0
 
         passed = run_case(
+            "live-object-diagnostic",
+            "object-diagnostic",
+            wow_pid,
+            0,
+            ["Ready=True", 'Reason="Ready"', "Stage=", "ClientConnection=0x", "ObjectManager=0x", "LocalGuid=0x", "FirstObject=0x", "Scanned=", "ReadableObjects=", "FailedObjects="],
+            ["--scan-limit", "512"],
+        ) and passed
+        passed = run_case(
             "live-object-snapshot",
             "object-snapshot",
             wow_pid,
@@ -154,10 +194,10 @@ def main():
         ) and passed
         passed = run_case(
             "live-world-snapshot",
-        "world-snapshot",
+            "world-snapshot",
         wow_pid,
         0,
-            ["Ready=True", 'Reason="Ready"', "SnapshotUtc=", "AgeMs=", "Phase=", "InGame=", "LoadingOrConnecting=", "ObjectCount=", "PlayerCount=", "UnitCount=", "GameObjectCount=", "Limit=", "Scanned=", "Player=MapId=", "MapIdKnown=", "ContinentId=", "ContinentName=", "Movement=", "ClickToMoveTypeRaw=", "ClickToMoveState=", "Me=Guid=0x"],
+            ["Ready=True", 'Reason="Ready"', "SnapshotUtc=", "AgeMs=", "Phase=", "InGame=", "LoadingOrConnecting=", "InWorld=", "HasPlayer=", "HasTarget=", "ObjectCount=", "PlayerCount=", "UnitCount=", "GameObjectCount=", "Limit=", "Scanned=", "Player=MapId=", "MapIdKnown=", "ContinentId=", "ContinentName=", "Movement=", "ClickToMoveTypeRaw=", "ClickToMoveState=", "Me=Guid=0x", "NearestUnit=", "NearestGameObject="],
             ["--limit", "512"],
         ) and passed
         passed = run_case(
@@ -185,10 +225,10 @@ def main():
         ) and passed
         passed = run_case(
             "live-object-kind-unit",
-            "object-snapshot",
+            "object-list",
             wow_pid,
             0,
-            ["Ready=True", 'Reason="Ready"', "SnapshotUtc=", "AgeMs=", "ObjectCount=", "UnitCount="],
+            ["Ready=True", 'Reason="Ready"', "SnapshotUtc=", "AgeMs=", "ObjectCount=", "UnitCount=", "Kind=Unit"],
             ["--limit", "512", "--kind", "Unit"],
         ) and passed
         passed = run_case(
@@ -196,7 +236,7 @@ def main():
             "object-list",
             wow_pid,
             0,
-            ["Ready=True", 'Reason="Ready"', "ObjectCount=20", "UnitCount=20", "Limit=20", "Scanned=512", "ItemIndex=19", "Kind=Unit", "Name="],
+            ["Ready=True", 'Reason="Ready"', "ObjectCount=20", "UnitCount=20", "Limit=20", "Scanned=", "ItemIndex=19", "Kind=Unit", "Name="],
             ["--limit", "20", "--scan-limit", "512", "--kind", "Unit"],
         ) and passed
         passed = run_case(

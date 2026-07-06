@@ -60,7 +60,7 @@ namespace SpellFire.WowRuntime.Infrastructure
 
             if (!table.HasPlayer)
             {
-                return objectPlayer.Status == WowRuntimeStatus.NotStarted
+                return !objectPlayer.Success && objectPlayer.Status == WowRuntimeStatus.NotStarted
                     ? WowRuntimeResult<PlayerSnapshot>.Fail(WowRuntimeStatus.AddressTableMissing, "World address table is not available.")
                     : objectPlayer;
             }

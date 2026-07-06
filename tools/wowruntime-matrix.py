@@ -5,9 +5,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = [
+    ROOT / "tools" / "wowruntime-worldphase-matrix.py",
     ROOT / "tools" / "wowruntime-objectmanager-matrix.py",
     ROOT / "tools" / "wowruntime-object-name-matrix.py",
     ROOT / "tools" / "wowruntime-scripting-matrix.py",
+    ROOT / "tools" / "wowruntime-movement-contract-guard.py",
     ROOT / "tools" / "wowruntime-movement-matrix.py",
 ]
 MAX_SUCCESS_OUTPUT_CHARS = 12000

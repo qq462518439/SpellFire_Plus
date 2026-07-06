@@ -9,6 +9,8 @@ namespace SpellFire.WowRuntime.ObjectManager
 
         WowRuntimeResult<WowObjectSnapshot> GetTarget();
 
+        WowRuntimeResult<ObjectManagerDiagnosticSnapshot> GetDiagnostic(int scanLimit);
+
         WowRuntimeResult<ObjectManagerSnapshot> GetObjects(int limit);
 
         WowRuntimeResult<ObjectManagerSnapshot> GetObjects(int limit, int scanLimit);
