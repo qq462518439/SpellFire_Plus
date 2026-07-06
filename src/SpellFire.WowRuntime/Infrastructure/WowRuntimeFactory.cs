@@ -16,7 +16,7 @@ namespace SpellFire.WowRuntime.Infrastructure
         private readonly IWorldAddressProvider addresses;
 
         public WowRuntimeFactory()
-            : this(new MemorySessionFactory(), new EmptyWorldAddressProvider())
+            : this(new MemorySessionFactory(), new StaticWorldAddressProvider())
         {
         }
 

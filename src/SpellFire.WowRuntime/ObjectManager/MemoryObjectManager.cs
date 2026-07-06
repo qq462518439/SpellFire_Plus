@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using SpellFire.MemoryRobot.Abstractions;
 using SpellFire.WowRuntime.Core;
 using SpellFire.WowRuntime.World;
@@ -22,7 +23,7 @@ namespace SpellFire.WowRuntime.ObjectManager
 
         public WowRuntimeResult<WowObjectSnapshot> GetMe()
         {
-            WowRuntimeResult<ObjectManagerSnapshot> snapshot = GetObjects(1);
+            WowRuntimeResult<ObjectManagerSnapshot> snapshot = GetObjects(GetDefaultScanLimit());
             if (!snapshot.Success)
             {
                 return WowRuntimeResult<WowObjectSnapshot>.Fail(snapshot.Status, snapshot.Detail);
@@ -35,7 +36,7 @@ namespace SpellFire.WowRuntime.ObjectManager
 
         public WowRuntimeResult<WowObjectSnapshot> GetTarget()
         {
-            WowRuntimeResult<ObjectManagerSnapshot> snapshot = GetObjects(1);
+            WowRuntimeResult<ObjectManagerSnapshot> snapshot = GetObjects(GetDefaultScanLimit());
             if (!snapshot.Success)
             {
                 return WowRuntimeResult<WowObjectSnapshot>.Fail(snapshot.Status, snapshot.Detail);
@@ -61,9 +62,18 @@ namespace SpellFire.WowRuntime.ObjectManager
                 return WowRuntimeResult<ObjectManagerSnapshot>.Fail(status, detail);
             }
 
-            return WowRuntimeResult<ObjectManagerSnapshot>.Fail(
-                WowRuntimeStatus.FeatureUnavailable,
-                "Object manager address model is present but object list decoding is not implemented yet.");
+            try
+            {
+                using (IMemoryRobot robot = memorySessions.Open(processId))
+                {
+                    ObjectManagerSnapshot snapshot = ReadSnapshot(robot, table, limit);
+                    return WowRuntimeResult<ObjectManagerSnapshot>.Ok(snapshot);
+                }
+            }
+            catch (Exception ex)
+            {
+                return WowRuntimeResult<ObjectManagerSnapshot>.Fail(WowRuntimeStatus.ReadFailed, ex.Message);
+            }
         }
 
         public WowRuntimeResult<WowObjectSnapshot> GetObjectByGuid(ulong guid)
@@ -73,7 +83,7 @@ namespace SpellFire.WowRuntime.ObjectManager
                 return WowRuntimeResult<WowObjectSnapshot>.Fail(WowRuntimeStatus.InvalidArgument, "Guid must be non-zero.");
             }
 
-            WowRuntimeResult<ObjectManagerSnapshot> snapshot = GetObjects(1024);
+            WowRuntimeResult<ObjectManagerSnapshot> snapshot = GetObjects(GetDefaultScanLimit());
             if (!snapshot.Success)
             {
                 return WowRuntimeResult<WowObjectSnapshot>.Fail(snapshot.Status, snapshot.Detail);
@@ -184,6 +194,164 @@ namespace SpellFire.WowRuntime.ObjectManager
             }
 
             return true;
+        }
+
+        private int GetDefaultScanLimit()
+        {
+            WorldAddressTable table = addresses.GetAddressTable(processId);
+            return table == null || table.ScanLimit <= 0 ? 512 : table.ScanLimit;
+        }
+
+        private static ObjectManagerSnapshot ReadSnapshot(IMemoryRobot robot, WorldAddressTable table, int limit)
+        {
+            uint clientConnection = ReadUInt32(robot, table.ObjectManager);
+            if (clientConnection == 0)
+            {
+                return new ObjectManagerSnapshot(null, null, Array.Empty<WowObjectSnapshot>(), limit);
+            }
+
+            uint objectManager = ReadUInt32(robot, Add(clientConnection, 0x2ED0));
+            if (objectManager == 0)
+            {
+                return new ObjectManagerSnapshot(null, null, Array.Empty<WowObjectSnapshot>(), limit);
+            }
+
+            ulong localGuid = ReadUInt64(robot, table.LocalGuid);
+            ulong targetGuid = ReadUInt64(robot, table.TargetGuid);
+            uint current = ReadUInt32(robot, Add(objectManager, table.FirstObject.ToInt32()));
+            HashSet<uint> visited = new HashSet<uint>();
+            List<WowObjectSnapshot> objects = new List<WowObjectSnapshot>();
+
+            int maxScan = Math.Min(table.ScanLimit, Math.Max(limit, 1));
+            for (int i = 0; i < maxScan && current != 0; i++)
+            {
+                if (!visited.Add(current))
+                {
+                    break;
+                }
+
+                WowObjectSnapshot item;
+                if (TryReadObject(robot, table, current, out item))
+                {
+                    objects.Add(item);
+                }
+
+                current = ReadUInt32(robot, Add(current, table.NextObjectOffset.ToInt32()));
+            }
+
+            WowObjectSnapshot me = objects.FirstOrDefault(item => item.Guid == localGuid);
+            WowObjectSnapshot target = objects.FirstOrDefault(item => item.Guid == targetGuid);
+            return new ObjectManagerSnapshot(me, target, objects, limit);
+        }
+
+        private static bool TryReadObject(IMemoryRobot robot, WorldAddressTable table, uint baseAddress, out WowObjectSnapshot snapshot)
+        {
+            snapshot = null;
+            try
+            {
+                ulong guid = ReadUInt64(robot, Add(baseAddress, table.ObjectGuidOffset.ToInt32()));
+                int type = ReadInt32(robot, Add(baseAddress, table.ObjectTypeOffset.ToInt32()));
+                if (guid == 0 || type < 0 || type > 7)
+                {
+                    return false;
+                }
+
+                ObjectKind kind = MapKind(type);
+                int entry = 0;
+                if (table.ObjectEntryOffset != IntPtr.Zero)
+                {
+                    uint descriptor = ReadUInt32(robot, Add(baseAddress, table.ObjectEntryOffset.ToInt32()));
+                    if (descriptor != 0)
+                    {
+                        entry = ReadInt32(robot, Add(descriptor, 0x8));
+                    }
+                }
+
+                Vector3 position = ReadPosition(robot, table, baseAddress, kind);
+                if (kind == ObjectKind.Player)
+                {
+                    snapshot = new WowPlayerSnapshot(guid, entry, string.Empty, position, true, true, false, 0);
+                }
+                else if (kind == ObjectKind.Unit)
+                {
+                    snapshot = new WowUnitSnapshot(guid, entry, string.Empty, kind, position, true, true, false, 0);
+                }
+                else if (kind == ObjectKind.GameObject)
+                {
+                    snapshot = new WowGameObjectSnapshot(guid, entry, string.Empty, position, true);
+                }
+                else
+                {
+                    snapshot = new WowObjectSnapshot(guid, entry, string.Empty, kind, position, true);
+                }
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static Vector3 ReadPosition(IMemoryRobot robot, WorldAddressTable table, uint baseAddress, ObjectKind kind)
+        {
+            int offset = kind == ObjectKind.GameObject
+                ? table.GameObjectPositionOffset.ToInt32()
+                : table.UnitPositionOffset.ToInt32();
+
+            float x = robot.Reader.Read<float>(Add(baseAddress, offset));
+            float y = robot.Reader.Read<float>(Add(baseAddress, offset + 4));
+            float z = robot.Reader.Read<float>(Add(baseAddress, offset + 8));
+            float rotation = 0;
+            if (kind != ObjectKind.GameObject)
+            {
+                rotation = robot.Reader.Read<float>(Add(baseAddress, offset + 16));
+            }
+
+            return new Vector3(x, y, z, rotation);
+        }
+
+        private static ObjectKind MapKind(int rawType)
+        {
+            switch (rawType)
+            {
+                case 1:
+                    return ObjectKind.Item;
+                case 2:
+                    return ObjectKind.Container;
+                case 3:
+                    return ObjectKind.Unit;
+                case 4:
+                    return ObjectKind.Player;
+                case 5:
+                    return ObjectKind.GameObject;
+                case 6:
+                    return ObjectKind.DynamicObject;
+                case 7:
+                    return ObjectKind.Corpse;
+                default:
+                    return ObjectKind.Object;
+            }
+        }
+
+        private static IntPtr Add(uint address, int offset)
+        {
+            return new IntPtr(unchecked((int)(address + (uint)offset)));
+        }
+
+        private static uint ReadUInt32(IMemoryRobot robot, IntPtr address)
+        {
+            return unchecked((uint)robot.Reader.Read<int>(address));
+        }
+
+        private static ulong ReadUInt64(IMemoryRobot robot, IntPtr address)
+        {
+            return unchecked((ulong)robot.Reader.Read<long>(address));
+        }
+
+        private static int ReadInt32(IMemoryRobot robot, IntPtr address)
+        {
+            return robot.Reader.Read<int>(address);
         }
 
         private static bool ProcessExists(int processId)

@@ -22,7 +22,13 @@ namespace SpellFire.WowRuntime.World
                   IntPtr.Zero,
                   IntPtr.Zero,
                   IntPtr.Zero,
-                  IntPtr.Zero)
+                  IntPtr.Zero,
+                  IntPtr.Zero,
+                  IntPtr.Zero,
+                  IntPtr.Zero,
+                  IntPtr.Zero,
+                  IntPtr.Zero,
+                  0)
         {
         }
 
@@ -37,7 +43,13 @@ namespace SpellFire.WowRuntime.World
             IntPtr firstObject,
             IntPtr nextObjectOffset,
             IntPtr localGuid,
-            IntPtr targetGuid)
+            IntPtr targetGuid,
+            IntPtr objectGuidOffset,
+            IntPtr objectTypeOffset,
+            IntPtr objectEntryOffset,
+            IntPtr unitPositionOffset,
+            IntPtr gameObjectPositionOffset,
+            int scanLimit)
         {
             MapId = mapId;
             PlayerX = playerX;
@@ -50,11 +62,37 @@ namespace SpellFire.WowRuntime.World
             NextObjectOffset = nextObjectOffset;
             LocalGuid = localGuid;
             TargetGuid = targetGuid;
+            ObjectGuidOffset = objectGuidOffset;
+            ObjectTypeOffset = objectTypeOffset;
+            ObjectEntryOffset = objectEntryOffset;
+            UnitPositionOffset = unitPositionOffset;
+            GameObjectPositionOffset = gameObjectPositionOffset;
+            ScanLimit = scanLimit;
         }
 
         public static WorldAddressTable Empty
         {
-            get { return new WorldAddressTable(IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero); }
+            get
+            {
+                return new WorldAddressTable(
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    0);
+            }
         }
 
         public IntPtr MapId { get; }
@@ -79,6 +117,18 @@ namespace SpellFire.WowRuntime.World
 
         public IntPtr TargetGuid { get; }
 
+        public IntPtr ObjectGuidOffset { get; }
+
+        public IntPtr ObjectTypeOffset { get; }
+
+        public IntPtr ObjectEntryOffset { get; }
+
+        public IntPtr UnitPositionOffset { get; }
+
+        public IntPtr GameObjectPositionOffset { get; }
+
+        public int ScanLimit { get; }
+
         public bool HasPlayer
         {
             get
@@ -99,7 +149,12 @@ namespace SpellFire.WowRuntime.World
                        FirstObject != IntPtr.Zero &&
                        NextObjectOffset != IntPtr.Zero &&
                        LocalGuid != IntPtr.Zero &&
-                       TargetGuid != IntPtr.Zero;
+                       TargetGuid != IntPtr.Zero &&
+                       ObjectGuidOffset != IntPtr.Zero &&
+                       ObjectTypeOffset != IntPtr.Zero &&
+                       UnitPositionOffset != IntPtr.Zero &&
+                       GameObjectPositionOffset != IntPtr.Zero &&
+                       ScanLimit > 0;
             }
         }
     }

@@ -82,11 +82,19 @@ def main():
         print('SKIP wowruntime-objectmanager-live Reason="NoWowProcess"')
     else:
         passed = run_case(
-            "live-address-table-gate",
+            "live-object-snapshot",
             "object-snapshot",
             wow_pid,
-            1,
-            ["Ready=False", 'Reason="AddressTableMissing"', "ObjectCount=0"],
+            0,
+            ["Ready=True", 'Reason="Ready"', "ObjectCount=", "Me=Guid=0x"],
+            ["--limit", "512"],
+        ) and passed
+        passed = run_case(
+            "live-object-me",
+            "object-me",
+            wow_pid,
+            0,
+            ["Ready=True", 'Reason="Ready"', "Object=Guid=0x"],
         ) and passed
 
     if passed:
