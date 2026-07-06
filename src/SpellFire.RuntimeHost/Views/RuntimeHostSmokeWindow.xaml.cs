@@ -1,26 +1,22 @@
 using System;
-using System.Diagnostics;
 using System.Globalization;
-using System.Linq;
 using System.Text.RegularExpressions;
-using System.Text;
 using System.Windows;
-using SpellFire.RuntimeHost.Abstractions;
-using SpellFire.RuntimeHost.Components;
+using SpellFire.RuntimeHost.Services;
 
 namespace SpellFire.RuntimeHost.Views
 {
     public partial class RuntimeHostSmokeWindow : Window
     {
-        private IRuntimeHost host;
-        private IRuntimeHostSession session;
+        private RuntimeHostOperationService operations;
+        private int activeProcessId;
 
         public RuntimeHostSmokeWindow()
         {
             InitializeComponent();
-            host = new RuntimeHostFactory().CreateHost();
+            operations = new RuntimeHostOperationService();
 
-            if (TryFindWowProcessId(out int processId, out string label))
+            if (RuntimeHostProcessLocator.TryFindLatestWow(out int processId, out string label))
             {
                 txtProcessId.Text = processId.ToString(CultureInfo.InvariantCulture);
                 txtStatus.Text = "已自动填入 " + label;
@@ -36,20 +32,20 @@ namespace SpellFire.RuntimeHost.Views
 
         protected override void OnClosed(EventArgs e)
         {
-            CleanupSession();
+            ResetOperations();
             base.OnClosed(e);
         }
 
         private void BtnFindWowProcess_Click(object sender, RoutedEventArgs e)
         {
-            if (!TryFindWowProcessId(out int processId, out string label))
+            if (!RuntimeHostProcessLocator.TryFindLatestWow(out int processId, out string label))
             {
                 txtStatus.Text = "No running Wow.exe process was found.";
                 AppendLog("No running Wow.exe process was found.");
                 return;
             }
 
-            CleanupSession();
+            ResetOperations();
             txtProcessId.Text = processId.ToString(CultureInfo.InvariantCulture);
             txtStatus.Text = "已填入 " + label;
             AppendLog("Using found process: " + label);
@@ -57,7 +53,7 @@ namespace SpellFire.RuntimeHost.Views
 
         private void BtnClearPid_Click(object sender, RoutedEventArgs e)
         {
-            CleanupSession();
+            ResetOperations();
             txtProcessId.Clear();
             txtStatus.Text = "PID 已清空。";
             AppendLog("PID cleared.");
@@ -76,116 +72,42 @@ namespace SpellFire.RuntimeHost.Views
 
         private void BtnAttach_Click(object sender, RoutedEventArgs e)
         {
-            RunSmoke("attach", current =>
-            {
-                EnsureSession(current);
-                var concreteHook = GetHookComponent();
-                if (concreteHook == null)
-                {
-                    return "SpellFireHook unavailable";
-                }
-
-                RuntimeComponentStatus attachResult = concreteHook.AttemptAttach(current);
-                txtStatus.Text = DescribeStatus("Attach", attachResult);
-                return FormatSession(session) + " | " + FormatComponent(attachResult);
-            });
+            RunSmoke("attach", current => operations.AttachHook(current), "Attach");
         }
 
-        private void BtnHostSnapshot_Click(object sender, RoutedEventArgs e)
+        private void BtnStatus_Click(object sender, RoutedEventArgs e)
         {
-            RunSmoke("host-snapshot", current =>
-            {
-                EnsureSession(current);
-                return FormatSession(session);
-            });
-        }
-
-        private void BtnMemoryRobot_Click(object sender, RoutedEventArgs e)
-        {
-            RunSmoke("memoryrobot", current =>
-            {
-                EnsureSession(current);
-                RuntimeComponentStatus component = session.Components.FirstOrDefault(item => string.Equals(item.Name, "MemoryRobot", StringComparison.Ordinal));
-                return component == null ? "MemoryRobot unavailable" : FormatComponent(component);
-            });
-        }
-
-        private void BtnHook_Click(object sender, RoutedEventArgs e)
-        {
-            RunSmoke("spellfire-hook", current =>
-            {
-                EnsureSession(current);
-                RuntimeComponentStatus component = session.Components.FirstOrDefault(item => string.Equals(item.Name, "SpellFireHook", StringComparison.Ordinal));
-                return component == null ? "SpellFireHook unavailable" : FormatComponent(component);
-            });
+            RunSmoke("status", current => operations.GetHookStatus(current), "状态");
         }
 
         private void BtnLuaSmoke_Click(object sender, RoutedEventArgs e)
         {
-            RunSmoke("lua-smoke", current =>
-            {
-                EnsureSession(current);
-                var concreteHook = GetHookComponent();
-                if (concreteHook == null)
-                {
-                    return "SpellFireHook unavailable";
-                }
-
-                RuntimeComponentStatus component = concreteHook.LuaSmoke(current);
-                txtStatus.Text = DescribeStatus("Lua冒烟", component);
-                return FormatComponent(component);
-            });
+            RunSmoke("lua-smoke", current => operations.LuaSmoke(current), "Lua冒烟");
         }
 
         private void BtnLuaExec_Click(object sender, RoutedEventArgs e)
         {
-            RunSmoke("lua-exec", current =>
-            {
-                EnsureSession(current);
-                var concreteHook = GetHookComponent();
-                if (concreteHook == null)
-                {
-                    return "SpellFireHook unavailable";
-                }
-
-                RuntimeComponentStatus component = concreteHook.ExecuteLua(current, txtLuaScript.Text ?? string.Empty);
-                txtStatus.Text = DescribeStatus("执行Lua", component);
-                return FormatComponent(component);
-            });
+            RunSmoke("lua-exec", current => operations.ExecuteLua(current, txtLuaScript.Text ?? string.Empty), "执行Lua");
         }
 
-        private void BtnRunAll_Click(object sender, RoutedEventArgs e)
-        {
-            RunSmoke("run-all", current =>
-            {
-                EnsureSession(current);
-                StringBuilder builder = new StringBuilder();
-                builder.Append(FormatSession(session));
-                foreach (RuntimeComponentStatus component in session.Components)
-                {
-                    builder.Append(" | ").Append(FormatComponent(component));
-                }
-
-                return builder.ToString();
-            });
-        }
-
-        private void RunSmoke(string name, Func<int, string> action)
+        private void RunSmoke(string name, Func<int, RuntimeHostOperationResult> action, string actionLabel)
         {
             if (!TryGetProcessId(out int processId))
             {
                 return;
             }
 
+            EnsureProcessScope(processId);
             AppendLog("START " + name + " pid=" + processId.ToString(CultureInfo.InvariantCulture));
             try
             {
-                string result = action(processId) ?? string.Empty;
+                RuntimeHostOperationResult result = action(processId);
+                txtStatus.Text = DescribeStatus(actionLabel, result);
                 if (string.IsNullOrWhiteSpace(txtStatus.Text) || txtStatus.Text.StartsWith("OK ", StringComparison.Ordinal) || txtStatus.Text.StartsWith("FAIL ", StringComparison.Ordinal))
                 {
                     txtStatus.Text = "OK " + name;
                 }
-                AppendLog("OK " + name + " " + result);
+                AppendLog("OK " + name + " " + RuntimeHostOutputFormatter.FormatOperation(result));
             }
             catch (Exception ex)
             {
@@ -194,27 +116,29 @@ namespace SpellFire.RuntimeHost.Views
             }
         }
 
-        private void EnsureSession(int processId)
+        private void EnsureProcessScope(int processId)
         {
-            if (session != null && session.ProcessId == processId && session.State != RuntimeHostState.Detached)
+            if (activeProcessId == processId && operations != null)
             {
                 return;
             }
 
-            CleanupSession();
-            session = host.Attach(processId);
+            ResetOperations();
+            operations = new RuntimeHostOperationService();
+            activeProcessId = processId;
         }
 
-        private void CleanupSession()
+        private void ResetOperations()
         {
-            if (session == null)
+            if (operations == null)
             {
                 return;
             }
 
-            session.Dispose();
+            operations.Dispose();
+            operations = null;
+            activeProcessId = 0;
             AppendLog("Cleanup SessionDisposed=True");
-            session = null;
         }
 
         private bool TryGetProcessId(out int processId)
@@ -229,40 +153,7 @@ namespace SpellFire.RuntimeHost.Views
 
             return true;
         }
-
-        private static bool TryFindWowProcessId(out int processId, out string label)
-        {
-            processId = 0;
-            label = string.Empty;
-            Process process = Process.GetProcessesByName("Wow")
-                .OrderByDescending(item => item.StartTime)
-                .FirstOrDefault();
-            if (process == null)
-            {
-                return false;
-            }
-
-            processId = process.Id;
-            label = process.ProcessName + " [PID:" + process.Id.ToString(CultureInfo.InvariantCulture) + "]";
-            return true;
-        }
-
-        private static string FormatSession(IRuntimeHostSession currentSession)
-        {
-            return "ProcessId=" + currentSession.ProcessId.ToString(CultureInfo.InvariantCulture) +
-                   " State=" + currentSession.State +
-                   " Components=" + currentSession.Components.Count.ToString(CultureInfo.InvariantCulture);
-        }
-
-        private static string FormatComponent(RuntimeComponentStatus component)
-        {
-            return "Name=\"" + (component.Name ?? string.Empty) +
-                   "\" Ready=" + component.Ready +
-                   " Reason=\"" + (component.Reason ?? string.Empty) +
-                   "\" Detail=\"" + (component.Detail ?? string.Empty) + "\"";
-        }
-
-        private static string DescribeStatus(string actionName, RuntimeComponentStatus status)
+        private static string DescribeStatus(string actionName, RuntimeHostOperationResult status)
         {
             if (status == null)
             {
@@ -300,26 +191,6 @@ namespace SpellFire.RuntimeHost.Views
                 default:
                     return actionName + "：" + reason;
             }
-        }
-
-        private SpellFireHookRuntimeComponent GetHookComponent()
-        {
-            RuntimeHost concreteHost = host as RuntimeHost;
-            if (concreteHost == null)
-            {
-                return null;
-            }
-
-            foreach (IRuntimeComponent component in concreteHost.Components)
-            {
-                SpellFireHookRuntimeComponent hook = component as SpellFireHookRuntimeComponent;
-                if (hook != null)
-                {
-                    return hook;
-                }
-            }
-
-            return null;
         }
 
         private static string DescribeLuaExecuteSucceeded(string detail)

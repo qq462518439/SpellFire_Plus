@@ -80,6 +80,7 @@
 
         <WrapPanel Grid.Row="2" Margin="0,0,0,10">
             <Button Content="Attach" Margin="0,0,8,8" Style="{StaticResource PrimaryButtonStyle}" Click="BtnAttach_Click"/>
+            <Button Content="状态" Margin="0,0,8,8" Style="{StaticResource GhostButtonStyle}" Click="BtnStatus_Click"/>
             <Button Content="Lua冒烟" Margin="0,0,8,8" Style="{StaticResource GhostButtonStyle}" Click="BtnLuaSmoke_Click"/>
         </WrapPanel>
 

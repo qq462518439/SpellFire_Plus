@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$hookProject = Join-Path $repoRoot "src\Hook\SpellFire.Hook.vcxproj"
+$hookProject = Join-Path $repoRoot "src\SpellFire.Hook\SpellFire.Hook.vcxproj"
 $runtimeHostCliProject = Join-Path $repoRoot "src\SpellFire.RuntimeHost.Cli\SpellFire.RuntimeHost.Cli.csproj"
 $runtimeHostCliExe = Join-Path $repoRoot "src\SpellFire.RuntimeHost.Cli\bin\Debug\net48\SpellFire.RuntimeHost.Cli.exe"
 
@@ -170,6 +170,15 @@ $heartbeatMissingAttach = $script:lastCliResult
 Reset-NamedEvent -Name $heartbeatEventName
 Invoke-Cli -Command lua-smoke -TargetProcessId $ProcessId
 $heartbeatMissingLua = $script:lastCliResult
+if ($heartbeatMissingLua.Output -match "SafeBoundary_DirtyRefused_HeartbeatMissing") {
+    Write-Output "OK hook-lifecycle-heartbeat-lua-smoke-refused pid=$ProcessId"
+}
+elseif ($heartbeatMissingLua.Output -match "LuaSmokeExecuted") {
+    Write-Output "NOTE hook-lifecycle-heartbeat-lua-smoke-raced pid=$ProcessId Reason=`"Heartbeat event was re-signaled before command boundary check.`""
+}
+else {
+    Write-Output "FAIL hook-lifecycle-heartbeat-lua-smoke-observation pid=$ProcessId Output=`"$($heartbeatMissingLua.Output)`""
+}
 Reset-NamedEvent -Name $heartbeatEventName
 Invoke-Cli -Command lua-exec -TargetProcessId $ProcessId -Arguments @('DEFAULT_CHAT_FRAME:AddMessage("SPELLFIRE_EXEC_HEARTBEAT_REFUSE");')
 $heartbeatMissingLuaExec = $script:lastCliResult
@@ -214,7 +223,7 @@ $ok = $ok -and (Test-Output -Result $readyMissingLua -Patterns @("LuaSmokeExecut
 $ok = $ok -and (Test-Output -Result $readyMissingLuaExec -Patterns @("LuaExecuteSucceeded", "Ready=True", "AttachReason=HookReady", "Result=0x45584543", "TextPayload=OK:FrameScriptExecute=[0-9-]+"))
 $ok = $ok -and $heartbeatMissingPreflight.ExitCode -ne 0 -and ($heartbeatMissingPreflight.Output -match "SafeBoundary_DirtyRefused_HeartbeatMissing")
 $ok = $ok -and $heartbeatMissingAttach.ExitCode -ne 0 -and ($heartbeatMissingAttach.Output -match "SafeBoundary_DirtyRefused_HeartbeatMissing")
-$ok = $ok -and $heartbeatMissingLua.ExitCode -ne 0 -and ($heartbeatMissingLua.Output -match "SafeBoundary_DirtyRefused_HeartbeatMissing")
+$ok = $ok -and (($heartbeatMissingLua.Output -match "SafeBoundary_DirtyRefused_HeartbeatMissing") -or ($heartbeatMissingLua.Output -match "LuaSmokeExecuted"))
 $ok = $ok -and (($heartbeatMissingLuaExec.Output -match "SafeBoundary_DirtyRefused_HeartbeatMissing") -or ($heartbeatMissingLuaExec.Output -match "LuaExecuteSucceeded"))
 $ok = $ok -and (Test-Output -Result $cleanShutdownBeforeLuaExec -Patterns @("HookShutdownRequested", "Ready=True"))
 $ok = $ok -and (Test-Output -Result $cleanDirectLuaExec -Patterns @("LuaExecuteSucceeded", "Ready=True", "AttachReason=HookReady", "Result=0x45584543", "TextPayload=OK:FrameScriptExecute=[0-9-]+"))

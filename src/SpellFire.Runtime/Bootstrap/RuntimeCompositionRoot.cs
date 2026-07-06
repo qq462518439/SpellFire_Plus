@@ -7,7 +7,7 @@ namespace SpellFire.Runtime.Bootstrap
     {
         public static IRuntimeFacade CreateDefaultFacade()
         {
-            return new RuntimeFacade(new RuntimeSessionService(), new RuntimeMemoryProbeService());
+            return new RuntimeFacade(new RuntimeSessionService(), new RuntimeMemoryProbeService(), new RuntimeHookService());
         }
     }
 }
