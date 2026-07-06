@@ -14,6 +14,7 @@ namespace SpellFire.RuntimeHost.Components
             public const int ReadSelfModule = 3;
             public const int LuaSmoke = 4;
             public const int ExecuteLua = 5;
+            public const int ClickToMoveMove = 6;
         }
 
         public static class Status
@@ -29,10 +30,13 @@ namespace SpellFire.RuntimeHost.Components
             public const int PeRead = 0x50455244;
             public const int LuaSmoke = 0x4C554153;
             public const int ExecuteLua = 0x45584543;
+            public const int ClickToMoveMove = 0x43544D56;
         }
 
         public const int ScriptBufferOffset = HeaderSize;
         public const int ScriptBufferLength = 512;
+        public const int ClickToMoveBufferOffset = ScriptBufferOffset;
+        public const int ClickToMoveBufferLength = 32;
         public const int ResultTextOffset = ScriptBufferOffset + ScriptBufferLength;
         public const int ResultTextLength = BufferSize - ResultTextOffset;
 

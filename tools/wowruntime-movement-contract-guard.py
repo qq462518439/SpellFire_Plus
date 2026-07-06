@@ -10,7 +10,7 @@ FILES = {
     "service": ROOT / "src" / "SpellFire.WowRuntime" / "Infrastructure" / "ScriptMovementService.cs",
     "cli": ROOT / "src" / "SpellFire.WowRuntime.Cli" / "Program.cs",
     "matrix": ROOT / "tools" / "wowruntime-movement-matrix.py",
-    "contract": ROOT / "Documentation" / "待办事项" / "WowRuntime_Movement最小动作层成品契约.md",
+    "plan": ROOT / "Documentation" / "PLAN.md",
 }
 
 
@@ -43,9 +43,11 @@ REQUIRED = {
         "TurnRightStart();",
         "SPELLFIRE_MOVE_TURN_RIGHT_START_OK",
         "MoveForwardStop(); MoveBackwardStop(); StrafeLeftStop(); StrafeRightStop(); AscendStop(); TurnLeftStop(); TurnRightStop();",
-        "ReadOnly=True CtmWriteKnown=False",
+        "ReadOnly=False CtmMoveKnown=True CtmStopNativeKnown=False",
         "Precise facing is not stable enough",
-        "Path movement is not implemented in the minimal movement layer.",
+        "Movement.Go requires at least one target point.",
+        "ClickToMoveMove(processId, target.X, target.Y, target.Z, 0, 4, 0.5f)",
+        '"go-ctm"',
     ],
     "cli": [
         'case "movement-forward-start"',
@@ -53,6 +55,8 @@ REQUIRED = {
         'case "movement-strafe-left-start"',
         'case "movement-strafe-right-start"',
         'case "movement-speed-sample"',
+        'case "movement-go"',
+        "requires explicit --x --y --z",
         'case "forward"',
         'case "backward"',
         'case "strafe-left"',
@@ -73,15 +77,15 @@ REQUIRED = {
         "Moved=True",
         "distance > 0.3",
         "computed_speed > 0.3",
+        "run_movement_go_sample(wow_pid)",
+        "PROBE wowruntime-movement-live",
+        "Phase=InWorld",
     ],
-    "contract": [
-        "`Movement` 当前成品边界是可验证的最小动作层",
-        "明确后置",
-        "FaceTo(Vector3)",
-        "FaceObject(ulong guid)",
-        "Go(IReadOnlyList<Vector3>)",
-        "CTM 写入",
-        "禁止误判",
+    "plan": [
+        "`Movement.Go` 固定为单点 CTM",
+        "`movement-go` CLI 必须显式传入 `--x --y --z`",
+        "只选择 `Phase=InWorld` 的 Wow 进程",
+        "`FaceTo` / `FaceObject` 继续拒绝",
     ],
 }
 
@@ -91,6 +95,7 @@ FORBIDDEN_SERVICE_SNIPPETS = [
     'return ExecuteAction("face-object"',
     'return ExecuteAction("go"',
     "CtmWriteKnown=True",
+    "Path movement is not implemented in the minimal movement layer.",
 ]
 
 

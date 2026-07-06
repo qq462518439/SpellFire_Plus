@@ -11,6 +11,7 @@ CASES = [
     ROOT / "tools" / "wowruntime-scripting-matrix.py",
     ROOT / "tools" / "wowruntime-movement-contract-guard.py",
     ROOT / "tools" / "wowruntime-movement-matrix.py",
+    ROOT / "tools" / "wowruntime-navigation-capability-matrix.py",
 ]
 MAX_SUCCESS_OUTPUT_CHARS = 12000
 

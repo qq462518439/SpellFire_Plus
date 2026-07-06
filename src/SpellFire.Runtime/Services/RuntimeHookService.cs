@@ -72,6 +72,14 @@ namespace SpellFire.Runtime.Services
             }
         }
 
+        public RuntimeOperationSnapshot ClickToMoveMove(int processId, float x, float y, float z, ulong guid, int action, float precision)
+        {
+            using (RuntimeHostOperationService service = new RuntimeHostOperationService())
+            {
+                return Map(service.ClickToMoveMove(processId, x, y, z, guid, action, precision));
+            }
+        }
+
         public RuntimeOperationSnapshot ShutdownHook(int processId)
         {
             using (RuntimeHostOperationService service = new RuntimeHostOperationService())

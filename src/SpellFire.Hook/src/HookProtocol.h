@@ -23,6 +23,7 @@ namespace SpellFireHookProtocol
         constexpr LONG ReadSelfModule = 3;
         constexpr LONG LuaSmoke = 4;
         constexpr LONG ExecuteLua = 5;
+        constexpr LONG ClickToMoveMove = 6;
     }
 
     namespace Status
@@ -39,10 +40,13 @@ namespace SpellFireHookProtocol
         constexpr LONG PeRead = 0x50455244; // PERD
         constexpr LONG LuaSmoke = 0x4C554153; // LUAS
         constexpr LONG ExecuteLua = 0x45584543; // EXEC
+        constexpr LONG ClickToMoveMove = 0x43544D56; // CTMV
     }
 
     constexpr DWORD ScriptBufferOffset = HeaderSize;
     constexpr DWORD ScriptBufferLength = 512;
+    constexpr DWORD ClickToMoveBufferOffset = ScriptBufferOffset;
+    constexpr DWORD ClickToMoveBufferLength = 32;
     constexpr DWORD ResultTextOffset = ScriptBufferOffset + ScriptBufferLength;
     constexpr DWORD ResultTextLength = BufferSize - ResultTextOffset;
 

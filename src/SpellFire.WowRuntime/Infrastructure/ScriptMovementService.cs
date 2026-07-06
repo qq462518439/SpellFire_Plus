@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using SpellFire.Runtime.Contracts;
+using SpellFire.Runtime.Models;
 using SpellFire.WowRuntime.Core;
 using SpellFire.WowRuntime.Movement;
 using SpellFire.WowRuntime.Scripting;
@@ -10,11 +12,15 @@ namespace SpellFire.WowRuntime.Infrastructure
     {
         private readonly IScriptService scripts;
         private readonly IWorldState world;
+        private readonly int processId;
+        private readonly IRuntimeFacade runtime;
 
-        public ScriptMovementService(IScriptService scripts, IWorldState world)
+        public ScriptMovementService(IScriptService scripts, IWorldState world, int processId, IRuntimeFacade runtime)
         {
             this.scripts = scripts;
             this.world = world;
+            this.processId = processId;
+            this.runtime = runtime;
         }
 
         public WowRuntimeResult<MovementStateSnapshot> GetMovementState()
@@ -43,7 +49,7 @@ namespace SpellFire.WowRuntime.Infrastructure
             }
 
             string detail = string.Format(
-                "ReadOnly=True CtmWriteKnown=False ClickToMoveTypeRaw={0} ClickToMoveState={1} SpeedKnown={2} Speed={3:0.###}",
+                "ReadOnly=False CtmMoveKnown=True CtmStopNativeKnown=False ClickToMoveTypeRaw={0} ClickToMoveState={1} SpeedKnown={2} Speed={3:0.###}",
                 movement.Value.ClickToMoveTypeRaw,
                 movement.Value.ClickToMoveState,
                 movement.Value.SpeedKnown,
@@ -112,7 +118,33 @@ namespace SpellFire.WowRuntime.Infrastructure
 
         public WowRuntimeResult<MovementActionSnapshot> Go(IReadOnlyList<Vector3> points)
         {
-            return WowRuntimeResult<MovementActionSnapshot>.Fail(WowRuntimeStatus.FeatureUnavailable, "Path movement is not implemented in the minimal movement layer.");
+            if (points == null || points.Count == 0)
+            {
+                return WowRuntimeResult<MovementActionSnapshot>.Fail(WowRuntimeStatus.InvalidArgument, "Movement.Go requires at least one target point.");
+            }
+
+            if (runtime == null)
+            {
+                return WowRuntimeResult<MovementActionSnapshot>.Fail(WowRuntimeStatus.FeatureUnavailable, "Runtime facade is not available for ClickToMove.");
+            }
+
+            Vector3 target = points[0];
+            RuntimeOperationSnapshot operation = runtime.ClickToMoveMove(processId, target.X, target.Y, target.Z, 0, 4, 0.5f);
+            if (operation == null)
+            {
+                return WowRuntimeResult<MovementActionSnapshot>.Fail(WowRuntimeStatus.FeatureUnavailable, "ClickToMove operation did not return a result.");
+            }
+
+            if (!operation.Ready)
+            {
+                return WowRuntimeResult<MovementActionSnapshot>.Fail(MapRuntimeStatus(operation.Reason), operation.Detail);
+            }
+
+            return WowRuntimeResult<MovementActionSnapshot>.Ok(new MovementActionSnapshot(
+                "go-ctm",
+                string.Empty,
+                operation.Reason,
+                operation.Detail));
         }
 
         public WowRuntimeResult<MovementActionSnapshot> StopMove()
@@ -138,6 +170,21 @@ namespace SpellFire.WowRuntime.Infrastructure
                 script,
                 executed.Value.Reason,
                 executed.Value.Detail));
+        }
+
+        private static WowRuntimeStatus MapRuntimeStatus(string reason)
+        {
+            if (string.Equals(reason, "ProcessUnavailable", System.StringComparison.OrdinalIgnoreCase))
+            {
+                return WowRuntimeStatus.ProcessUnavailable;
+            }
+
+            if (string.Equals(reason, "InvalidArgument", System.StringComparison.OrdinalIgnoreCase))
+            {
+                return WowRuntimeStatus.InvalidArgument;
+            }
+
+            return WowRuntimeStatus.FeatureUnavailable;
         }
 
     }

@@ -526,6 +526,57 @@ namespace SpellFire.RuntimeHost.Components
             }
         }
 
+        public RuntimeComponentStatus ClickToMoveMove(int processId, float x, float y, float z, ulong guid, int action, float precision)
+        {
+            StringBuilder detail = new StringBuilder();
+            try
+            {
+                RuntimeComponentStatus status = EnsureHookReadyForCommands(processId, detail);
+                detail.Append(" StatusReason=").Append(status.Reason);
+                detail.Append(" StatusReady=").Append(status.Ready);
+                detail.Append(" X=").Append(x);
+                detail.Append(" Y=").Append(y);
+                detail.Append(" Z=").Append(z);
+                detail.Append(" Guid=0x").Append(guid.ToString("X"));
+                detail.Append(" Action=").Append(action);
+                detail.Append(" Precision=").Append(precision);
+                if (!status.Ready)
+                {
+                    return new RuntimeComponentStatus
+                    {
+                        Name = Name,
+                        Ready = false,
+                        Reason = "ClickToMoveHookUnavailable",
+                        Detail = detail.Append(" StatusDetail=[").Append(status.Detail ?? string.Empty).Append("]").ToString()
+                    };
+                }
+
+                using (HookCommandChannel channel = new HookCommandChannel(processId))
+                {
+                    HookCommandResult result = channel.ClickToMoveMove(x, y, z, guid, action, precision, 3000);
+                    AppendCommandResult(detail, result);
+                    return new RuntimeComponentStatus
+                    {
+                        Name = Name,
+                        Ready = result.Ready,
+                        Reason = result.Ready ? "ClickToMoveCommandSucceeded" : "ClickToMoveNativeUnavailable",
+                        Detail = detail.ToString()
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                detail.Append(" ClickToMoveError=").Append(ex.GetType().Name).Append(":").Append(ex.Message);
+                return new RuntimeComponentStatus
+                {
+                    Name = Name,
+                    Ready = false,
+                    Reason = "ClickToMoveCommandFailed",
+                    Detail = detail.ToString()
+                };
+            }
+        }
+
         public void Cleanup(int processId)
         {
         }

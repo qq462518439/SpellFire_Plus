@@ -16,8 +16,8 @@
 - `ObjectManager` 已有 `Me / Target / Objects / Guid / Entry / Kind / Nearby / Nearest`。
 - `WorldState.GetPlayer()` 已优先走 `ObjectManager.GetMe()`。
 - `WorldState.GetPhase()` 已按 WRobot `Usefuls` 地址读取 `InGame / IsLoadingOrConnecting`，用于区分登录/角色列表、加载/连接、世界内。
-- `Movement` 已有 `Jump / StopMove / StopMoveTo`。
-- `Movement.Go` 已明确拒绝，导航专项前必须继续返回 `FeatureUnavailable`。
+- `Movement` 已有 `Jump / StopMove / StopMoveTo / Forward / Backward / Strafe / Turn / Go 单点 CTM`。
+- `Movement.Go` 当前只执行第一个目标点的 CTM Move；它不是导航，不处理路径队列、避障、到达判定或卡住恢复。
 - `Scripting` 已作为 Movement 动作通道存在，但本专项不扩展复杂 Lua return 值系统。
 
 ## 成品标准
@@ -32,9 +32,9 @@
 ## 下一刀顺序
 1. `ObjectManager` 快照语义和失败语义收口。
 2. `WorldState / RuntimeWorldSnapshot` 聚合字段收口。
-3. `Movement` 状态语义修正，处理 `InMovement=false` 假稳定问题。
-4. CLI 与 Python 矩阵补齐验收。
-5. 更新 `Documentation/PLAN.md` 的 `Immediate Next Mainline` 状态。
+3. `Movement.Go` 单点 CTM 语义收口，固定空点集拒绝、多点只取第一个点。
+4. Navigation 前置边界定义：路径队列、到达判定、卡住判定、Stop/Cleanup 责任。
+5. CLI 与 Python 矩阵补齐验收。
 
 ## 固定验收命令
 ```powershell
@@ -56,6 +56,23 @@ python tools\runtime-facade-matrix.py
 - 是否触碰导航、RobotManager、Product。预期答案必须是否。
 
 ## 施工记录
+
+### 2026-07-06 第十八刀：Movement.Go 单点 CTM 接入
+- 本轮改动部门：`Movement`、`Runtime/Hook CTM 白名单命令`、CLI 验收矩阵。
+- `Movement.Go(points)` 已从 `FeatureUnavailable` 改为单点 CTM：空点集返回 `InvalidArgument`，非空点集只取第一个点调用 Runtime facade 的 `ClickToMoveMove(x, y, z, guid=0, action=4, precision=0.5)`。
+- `movement-go --x --y --z` 已接入 CLI。
+- `tools/wowruntime-ctm-matrix.py` 已固定 8 码安全偏移样本，要求采集到 `ClickToMoveTypeRaw=4` 或 `InMovement=True`。
+- `tools/wowruntime-movement-matrix.py` 已增加 `movement-go` 真实位移样本，要求 `Action="go-ctm"`、`RuntimeReason="ClickToMoveCommandSucceeded"`、`TextPayload=OK:CGPlayer_C__ClickToMove`、真实位移和活动 CTM 状态。
+- 已通过验收：
+  - `dotnet build .\src\SpellFire.WowRuntime.Cli\SpellFire.WowRuntime.Cli.csproj -c Debug -p:UseSharedCompilation=false`
+  - `python tools\wowruntime-ctm-matrix.py 9080`
+  - `python tools\wowruntime-movement-matrix.py`
+- 关键证据：
+  - `ClickToMoveTypeRaw=4`
+  - `ClickToMoveState=Move`
+  - `Speed=7`
+  - `MovedDistance=7.560` 至 `7.974`
+- 本轮没有触碰 Navigation、RobotManager、Product。
 
 ### 2026-07-06 第一刀：Movement 状态语义与 WorldSnapshot 聚合
 - 本轮改动部门：`Movement`、`WorldState / RuntimeWorldSnapshot`、CLI 验收矩阵。

@@ -73,6 +73,10 @@ def parse_position(output):
         return None
 
 
+def distance(a, b):
+    return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2)
+
+
 def parse_guid(output):
     marker = "Guid=0x"
     index = output.find(marker)
@@ -327,6 +331,83 @@ def run_movement_speed_sample(pid, action, expected_action, expected_detail):
     return False
 
 
+def run_movement_go_sample(pid):
+    print(f"START wowruntime-movement-go-sample Pid={pid}")
+    before, before_output = read_player_position(pid)
+    if before is None:
+        print(f"FAIL wowruntime-movement-go-sample Stage=ReadBefore Output=\"{before_output}\"")
+        return False
+
+    target = (before[0] + 8.0, before[1], before[2])
+    completed = run_cli_args([
+        str(CLI),
+        "--command",
+        "movement-go",
+        "--pid",
+        str(pid),
+        "--x",
+        f"{target[0]:.3f}",
+        "--y",
+        f"{target[1]:.3f}",
+        "--z",
+        f"{target[2]:.3f}",
+    ])
+    go_output = (completed.stdout + completed.stderr).strip()
+    if go_output:
+        print(go_output)
+
+    state = None
+    state_output = ""
+    observed_active_state = False
+    for sample in range(1, 7):
+        time.sleep(0.2)
+        state = run_cli("movement-state", pid)
+        state_output = (state.stdout + state.stderr).strip()
+        if state_output:
+            print(f"SAMPLE wowruntime-movement-go-sample Index={sample} {state_output}")
+        if state.returncode == 0 and ("InMovement=True" in state_output or "ClickToMoveTypeRaw=4" in state_output):
+            observed_active_state = True
+            break
+
+    time.sleep(1.0)
+    after, after_output = read_player_position(pid)
+    stopped = run_cli("movement-stop", pid)
+    stop_output = (stopped.stdout + stopped.stderr).strip()
+    if stop_output:
+        print(stop_output)
+
+    moved_distance = distance(before, after) if after is not None else 0.0
+    ok = (
+        completed.returncode == 0
+        and 'Action="go-ctm"' in go_output
+        and 'RuntimeReason="ClickToMoveCommandSucceeded"' in go_output
+        and "OK:CGPlayer_C__ClickToMove" in go_output
+        and state is not None
+        and state.returncode == 0
+        and observed_active_state
+        and after is not None
+        and moved_distance >= 0.25
+        and stopped.returncode == 0
+    )
+
+    if ok:
+        print(
+            "OK wowruntime-movement-go-sample "
+            f"MovedDistance={moved_distance:.3f} "
+            f"ActiveStateObserved={observed_active_state} "
+            f"Before=({before[0]:.3f},{before[1]:.3f},{before[2]:.3f}) "
+            f"After=({after[0]:.3f},{after[1]:.3f},{after[2]:.3f})"
+        )
+        return True
+
+    print(
+        "FAIL wowruntime-movement-go-sample "
+        f"GoExit={completed.returncode} StateExit={state.returncode if state is not None else 'None'} StopExit={stopped.returncode} "
+        f"MovedDistance={moved_distance:.3f} ActiveStateObserved={observed_active_state}"
+    )
+    return False
+
+
 def run_turn_action_sample(pid, start_command, expected_action):
     print(f"START wowruntime-movement-turn-sample Command={start_command} Pid={pid}")
     started = run_cli(start_command, pid)
@@ -416,15 +497,27 @@ def find_wow_pid():
             "powershell",
             "-NoProfile",
             "-Command",
-            "Get-Process -Name Wow -ErrorAction SilentlyContinue | Sort-Object StartTime -Descending | Select-Object -First 1 -ExpandProperty Id",
+            "Get-Process -Name Wow -ErrorAction SilentlyContinue | Sort-Object StartTime -Descending | Select-Object -ExpandProperty Id",
         ],
         text=True,
         encoding="utf-8",
         errors="replace",
         capture_output=True,
     )
-    value = completed.stdout.strip()
-    return int(value) if value.isdigit() else 0
+    for line in completed.stdout.splitlines():
+        value = line.strip()
+        if not value.isdigit():
+            continue
+
+        pid = int(value)
+        phase = run_cli("world-phase", pid)
+        output = (phase.stdout + phase.stderr).strip()
+        if output:
+            print(f"PROBE wowruntime-movement-live Pid={pid} {output}")
+        if phase.returncode == 0 and "Phase=InWorld" in output:
+            return pid
+
+    return 0
 
 
 def main():
@@ -449,11 +542,11 @@ def main():
         ["Ready=False", 'Reason="ProcessUnavailable"', "InMovement=Unknown", "ClickToMoveTypeRaw=Unknown", "ClickToMoveState=Unknown"],
     ) and passed
     passed = run_case(
-        "movement-go-not-implemented",
+        "missing-movement-go",
         "movement-go",
         missing_pid,
         1,
-        ["Ready=False", 'Reason="FeatureUnavailable"', "Path movement is not implemented"],
+        ["Ready=False", 'Reason="InvalidArgument"', "requires explicit --x --y --z"],
     ) and passed
 
     wow_pid = find_wow_pid()
@@ -472,7 +565,7 @@ def main():
             "movement-ctm-diagnostic",
             wow_pid,
             0,
-            ["Ready=True", 'Reason="Ready"', "Phase=", "Pos=(", "Rotation=", "InMovement=", "ClickToMoveTypeRaw=", "ClickToMoveState=", "SpeedKnown=", "ReadOnly=True", "CtmWriteKnown=False"],
+            ["Ready=True", 'Reason="Ready"', "Phase=", "Pos=(", "Rotation=", "InMovement=", "ClickToMoveTypeRaw=", "ClickToMoveState=", "SpeedKnown=", "ReadOnly=False", "CtmMoveKnown=True", "CtmStopNativeKnown=False"],
         ) and passed
         passed = run_case(
             "live-movement-jump",
@@ -486,6 +579,7 @@ def main():
         passed = run_movement_speed_sample(wow_pid, "backward", "backward-start", "Backward movement produced measurable displacement speed evidence.") and passed
         passed = run_movement_speed_sample(wow_pid, "strafe-left", "strafe-left-start", "Strafe-left movement produced measurable displacement speed evidence.") and passed
         passed = run_movement_speed_sample(wow_pid, "strafe-right", "strafe-right-start", "Strafe-right movement produced measurable displacement speed evidence.") and passed
+        passed = run_movement_go_sample(wow_pid) and passed
         passed = run_turn_action_sample(wow_pid, "movement-turn-left-start", "turn-left-start") and passed
         passed = run_turn_action_sample(wow_pid, "movement-turn-right-start", "turn-right-start") and passed
         passed = run_turn_rotation_sample(wow_pid, "movement-turn-left-start", "turn-left-start") and passed

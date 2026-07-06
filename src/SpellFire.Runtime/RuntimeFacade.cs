@@ -82,6 +82,11 @@ namespace SpellFire.Runtime
             return hookService.ExecuteLua(processId, script);
         }
 
+        public RuntimeOperationSnapshot ClickToMoveMove(int processId, float x, float y, float z, ulong guid, int action, float precision)
+        {
+            return hookService.ClickToMoveMove(processId, x, y, z, guid, action, precision);
+        }
+
         public RuntimeOperationSnapshot ShutdownHook(int processId)
         {
             return hookService.ShutdownHook(processId);

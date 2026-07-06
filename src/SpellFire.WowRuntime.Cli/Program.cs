@@ -4,6 +4,7 @@ using System.Threading;
 using SpellFire.WowRuntime.Core;
 using SpellFire.WowRuntime.Infrastructure;
 using SpellFire.WowRuntime.Movement;
+using SpellFire.WowRuntime.Navigation;
 using SpellFire.WowRuntime.ObjectManager;
 using SpellFire.WowRuntime.Scripting;
 using SpellFire.WowRuntime.World;
@@ -24,6 +25,9 @@ namespace SpellFire.WowRuntime.Cli
             float x = ParseFloat(GetArg(args, "--x", "0"), 0);
             float y = ParseFloat(GetArg(args, "--y", "0"), 0);
             float z = ParseFloat(GetArg(args, "--z", "0"), 0);
+            bool hasX = HasArg(args, "--x");
+            bool hasY = HasArg(args, "--y");
+            bool hasZ = HasArg(args, "--z");
             string action = GetArg(args, "--action", "forward");
             ObjectKind? kind = ParseKind(GetArg(args, "--kind", string.Empty));
 
@@ -96,13 +100,22 @@ namespace SpellFire.WowRuntime.Cli
                 case "movement-stop-to":
                     return PrintMovementResult(command, processId, runtime.Movement.StopMoveTo());
                 case "movement-go":
-                    return PrintMovementResult(command, processId, runtime.Movement.Go(Array.Empty<Vector3>()));
+                    if (!hasX || !hasY || !hasZ)
+                    {
+                        return PrintMovementResult(command, processId, WowRuntimeResult<MovementActionSnapshot>.Fail(
+                            WowRuntimeStatus.InvalidArgument,
+                            "movement-go requires explicit --x --y --z. Refusing implicit 0,0,0 target."));
+                    }
+
+                    return PrintMovementResult(command, processId, runtime.Movement.Go(new[] { new Vector3(x, y, z) }));
                 case "movement-ctm-diagnostic":
                     return PrintClickToMoveDiagnosticResult(command, processId, runtime.Movement.GetClickToMoveDiagnostic());
                 case "movement-state":
                     return PrintMovementStateResult(command, processId, runtime.Movement.GetMovementState());
                 case "movement-speed-sample":
                     return PrintMovementSpeedSampleResult(command, processId, runtime, action);
+                case "navigation-capability":
+                    return PrintNavigationCapabilityResult(command, processId, runtime.Navigation.GetCapability());
                 default:
                     Console.WriteLine("Result=Fail Command=\"{0}\" Reason=\"UnknownCommand\" Detail=\"Unsupported command.\" ProcessId={1}", Escape(command), processId);
                     return 2;
@@ -402,6 +415,32 @@ namespace SpellFire.WowRuntime.Cli
             return 0;
         }
 
+        private static int PrintNavigationCapabilityResult(string command, int processId, NavigationCapabilitySnapshot result)
+        {
+            if (result == null)
+            {
+                Console.WriteLine(
+                    "Result=Fail Command=\"{0}\" ProcessId={1} Ready=False Reason=\"NavigationCapabilityUnavailable\" Detail=\"Navigation capability snapshot is unavailable.\" CanFindPath=False CanExecutePath=False CanFindZ=False SupportsPathQueue=False SupportsArrivalCheck=False SupportsStuckDetection=False StopResponsibility=\"\"",
+                    Escape(command),
+                    processId);
+                return 1;
+            }
+
+            Console.WriteLine(
+                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"Ready\" CanFindPath={2} CanExecutePath={3} CanFindZ={4} SupportsPathQueue={5} SupportsArrivalCheck={6} SupportsStuckDetection={7} StopResponsibility=\"{8}\" Detail=\"{9}\"",
+                Escape(command),
+                processId,
+                result.CanFindPath,
+                result.CanExecutePath,
+                result.CanFindZ,
+                result.SupportsPathQueue,
+                result.SupportsArrivalCheck,
+                result.SupportsStuckDetection,
+                Escape(result.StopResponsibility),
+                Escape(result.Detail));
+            return 0;
+        }
+
         private static int PrintClickToMoveDiagnosticResult(string command, int processId, WowRuntimeResult<ClickToMoveDiagnosticSnapshot> result)
         {
             if (!result.Success)
@@ -644,6 +683,19 @@ namespace SpellFire.WowRuntime.Cli
             }
 
             return fallback;
+        }
+
+        private static bool HasArg(string[] args, string name)
+        {
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static int ParseInt(string value, int fallback)

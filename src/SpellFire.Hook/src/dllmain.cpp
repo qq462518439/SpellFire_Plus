@@ -6,6 +6,8 @@ namespace
     namespace Protocol = SpellFireHookProtocol;
 
     constexpr DWORD WowFrameScriptExecute = 0x819210;
+    constexpr DWORD WowCGPlayerClickToMove = 0x727400;
+    constexpr DWORD WowClntObjMgrGetActivePlayerObj = 0x4038F0;
     constexpr DWORD WowDirect3DDevice = 0xC5DF88;
     constexpr DWORD WowDirect3DDeviceVTableOffset = 0x397C;
     constexpr DWORD EndSceneVTableIndex = 42;
@@ -18,9 +20,155 @@ namespace
     constexpr LONG LuaStatusVTableMissing = 0x2003;
     constexpr LONG LuaStatusProtectFailed = 0x2004;
     constexpr LONG LuaStatusTimeout = 0x2005;
+    constexpr LONG CtmIdle = 0;
+    constexpr LONG CtmPending = 1;
+    constexpr LONG CtmDone = 2;
+    constexpr LONG CtmFailed = 3;
+    constexpr LONG CtmStatusTimeout = 0x3001;
+    constexpr LONG CtmStatusNoPlayerObject = 0x3002;
+    constexpr LONG CtmStatusNativeReturnedFalse = 0x3003;
+
+    #pragma pack(push, 1)
+    struct ClickToMoveCommand
+    {
+        float X;
+        float Y;
+        float Z;
+        unsigned long long Guid;
+        LONG Action;
+        float Precision;
+        LONG Reserved;
+    };
+    #pragma pack(pop)
+
+    struct CtmVector3
+    {
+        float X;
+        float Y;
+        float Z;
+    };
 
     using EndSceneFn = HRESULT(WINAPI*)(void* device);
     using FrameScriptExecuteFn = int(__cdecl*)(const char* command, int a1, int a2);
+    using ClntObjMgrGetActivePlayerObjFn = void*(__cdecl*)();
+    using CGPlayerClickToMoveFn = bool(__thiscall*)(void* activePlayerObject, int clickType, long long* guid, CtmVector3* position, float precision);
+
+    DWORD RebaseWowAddress(DWORD relativeAddress)
+    {
+        return relativeAddress + 0x400000;
+    }
+
+    DWORD GetMainModuleSize()
+    {
+        HMODULE module = GetModuleHandleW(nullptr);
+        if (module == nullptr)
+        {
+            return 0;
+        }
+
+        BYTE* base = reinterpret_cast<BYTE*>(module);
+        IMAGE_DOS_HEADER* dosHeader = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
+        if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
+        {
+            return 0;
+        }
+
+        IMAGE_NT_HEADERS32* ntHeaders = reinterpret_cast<IMAGE_NT_HEADERS32*>(base + dosHeader->e_lfanew);
+        if (ntHeaders->Signature != IMAGE_NT_SIGNATURE)
+        {
+            return 0;
+        }
+
+        return ntHeaders->OptionalHeader.SizeOfImage;
+    }
+
+    DWORD FindPatternInMainModule(const BYTE* pattern, const char* mask, DWORD length)
+    {
+        HMODULE module = GetModuleHandleW(nullptr);
+        DWORD imageSize = GetMainModuleSize();
+        if (module == nullptr || imageSize == 0 || pattern == nullptr || mask == nullptr || length == 0 || imageSize < length)
+        {
+            return 0;
+        }
+
+        BYTE* base = reinterpret_cast<BYTE*>(module);
+        for (DWORD offset = 0; offset <= imageSize - length; offset++)
+        {
+            bool matched = true;
+            for (DWORD index = 0; index < length; index++)
+            {
+                if (mask[index] == 'x' && base[offset + index] != pattern[index])
+                {
+                    matched = false;
+                    break;
+                }
+            }
+
+            if (matched)
+            {
+                return reinterpret_cast<DWORD>(base + offset);
+            }
+        }
+
+        return 0;
+    }
+
+    DWORD ResolveClickToMoveAddress(bool* fromSignature)
+    {
+        static DWORD resolved = 0;
+        static bool resolvedFromSignature = false;
+        if (resolved != 0)
+        {
+            if (fromSignature != nullptr)
+            {
+                *fromSignature = resolvedFromSignature;
+            }
+
+            return resolved;
+        }
+
+        const BYTE clickToMovePattern[] = { 0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x18, 0x53, 0x8B, 0xD9, 0x8B, 0x43, 0x08 };
+        resolved = FindPatternInMainModule(clickToMovePattern, "xxxxxxxxxxxx", sizeof(clickToMovePattern));
+        resolvedFromSignature = resolved != 0;
+        if (resolved == 0)
+        {
+            resolved = WowCGPlayerClickToMove;
+        }
+
+        if (fromSignature != nullptr)
+        {
+            *fromSignature = resolvedFromSignature;
+        }
+
+        return resolved;
+    }
+
+    bool InvokeClickToMoveAsm(void* activePlayerObject, int action, long long* guid, CtmVector3* position, float precision)
+    {
+        DWORD clickToMoveAddress = ResolveClickToMoveAddress(nullptr);
+        DWORD precisionBits = *reinterpret_cast<DWORD*>(&precision);
+        bool result = false;
+        __asm
+        {
+            mov eax, activePlayerObject
+            test eax, eax
+            jz no_player
+            mov ecx, eax
+            push precisionBits
+            push position
+            push guid
+            push action
+            call clickToMoveAddress
+            movzx eax, al
+            mov result, al
+            jmp done
+        no_player:
+            mov result, 0
+        done:
+        }
+
+        return result;
+    }
 
     HANDLE g_readyEvent = nullptr;
     HANDLE g_heartbeatEvent = nullptr;
@@ -43,6 +191,25 @@ namespace
     volatile LONG g_luaSmokeLastStatus = 0;
     volatile LONG g_luaSmokeExecuted = 0;
     const char* g_pendingLuaScript = nullptr;
+    volatile LONG g_ctmState = CtmIdle;
+    volatile LONG g_ctmLastStatus = 0;
+    volatile LONG g_ctmExecuted = 0;
+    ClickToMoveCommand g_pendingClickToMove = {};
+    long long g_ctmGuidStorage = 0;
+    CtmVector3 g_ctmPositionStorage = {};
+    DWORD_PTR g_lastCtmPlayerObject = 0;
+    DWORD_PTR g_lastCtmFunction = 0;
+    DWORD_PTR g_lastCtmExceptionAddress = 0;
+    LONG g_lastCtmType = 0;
+
+    LONG CaptureCtmException(EXCEPTION_POINTERS* exceptionPointers)
+    {
+        g_lastCtmExceptionAddress = exceptionPointers != nullptr && exceptionPointers->ExceptionRecord != nullptr
+            ? reinterpret_cast<DWORD_PTR>(exceptionPointers->ExceptionRecord->ExceptionAddress)
+            : 0;
+        return EXCEPTION_EXECUTE_HANDLER;
+    }
+
 
     void WriteResultText(const char* text)
     {
@@ -125,9 +292,83 @@ namespace
         }
     }
 
+    void ExecutePendingClickToMoveCommand()
+    {
+        if (InterlockedCompareExchange(&g_ctmState, CtmPending, CtmPending) != CtmPending)
+        {
+            return;
+        }
+
+        __try
+        {
+            ClntObjMgrGetActivePlayerObjFn getActivePlayerObject =
+                reinterpret_cast<ClntObjMgrGetActivePlayerObjFn>(WowClntObjMgrGetActivePlayerObj);
+            void* activePlayerObject = getActivePlayerObject();
+            g_lastCtmPlayerObject = reinterpret_cast<DWORD_PTR>(activePlayerObject);
+            bool ctmFromSignature = false;
+            DWORD clickToMoveAddress = ResolveClickToMoveAddress(&ctmFromSignature);
+            g_lastCtmFunction = clickToMoveAddress;
+            if (activePlayerObject == nullptr)
+            {
+                InterlockedExchange(&g_ctmLastStatus, CtmStatusNoPlayerObject);
+                InterlockedExchange(&g_ctmExecuted, 0);
+                WriteResultText("ERR:ActivePlayerObjectMissing");
+                InterlockedExchange(&g_ctmState, CtmFailed);
+                return;
+            }
+
+            ClickToMoveCommand ctm = g_pendingClickToMove;
+            g_ctmGuidStorage = static_cast<long long>(ctm.Guid);
+            g_ctmPositionStorage = { ctm.X, ctm.Y, ctm.Z };
+            g_lastCtmType = *reinterpret_cast<LONG*>(RebaseWowAddress(0x8A11F4));
+            char callBuffer[160] = {};
+            wsprintfA(
+                callBuffer,
+                "CALL:Player=0x%08X Fn=0x%08X Source=%s Action=%d",
+                static_cast<unsigned int>(reinterpret_cast<DWORD_PTR>(activePlayerObject)),
+                clickToMoveAddress,
+                ctmFromSignature ? "Signature" : "Fallback",
+                ctm.Action);
+            WriteResultText(callBuffer);
+            float precision = 0.0f;
+            bool moved = InvokeClickToMoveAsm(activePlayerObject, ctm.Action, &g_ctmGuidStorage, &g_ctmPositionStorage, precision);
+            if (!moved)
+            {
+                InterlockedExchange(&g_ctmLastStatus, CtmStatusNativeReturnedFalse);
+                InterlockedExchange(&g_ctmExecuted, 0);
+                WriteResultText("ERR:CGPlayer_C__ClickToMove=false");
+                InterlockedExchange(&g_ctmState, CtmFailed);
+                return;
+            }
+
+            InterlockedExchange(&g_ctmLastStatus, 0);
+            InterlockedExchange(&g_ctmExecuted, 1);
+            WriteResultText("OK:CGPlayer_C__ClickToMove");
+            InterlockedExchange(&g_ctmState, CtmDone);
+        }
+        __except (CaptureCtmException(GetExceptionInformation()))
+        {
+            DWORD exceptionCode = GetExceptionCode();
+            InterlockedExchange(&g_ctmLastStatus, static_cast<LONG>(exceptionCode));
+            InterlockedExchange(&g_ctmExecuted, 0);
+            char errorBuffer[192] = {};
+            wsprintfA(
+                errorBuffer,
+                "E=0x%08X A=0x%08X P=0x%08X F=0x%08X T=%d",
+                exceptionCode,
+                static_cast<unsigned int>(g_lastCtmExceptionAddress),
+                static_cast<unsigned int>(g_lastCtmPlayerObject),
+                static_cast<unsigned int>(g_lastCtmFunction),
+                static_cast<int>(g_lastCtmType));
+            WriteResultText(errorBuffer);
+            InterlockedExchange(&g_ctmState, CtmFailed);
+        }
+    }
+
     HRESULT WINAPI EndSceneHook(void* device)
     {
         ExecutePendingLuaCommand();
+        ExecutePendingClickToMoveCommand();
         return g_originalEndScene(device);
     }
 
@@ -370,6 +611,53 @@ namespace
                             InterlockedExchange(&g_luaSmokeState, LuaSmokeIdle);
                             InterlockedExchange(&g_luaSmokeLastStatus, LuaStatusTimeout);
                             CompleteCommand(Protocol::Status::Failed, Protocol::Results::ExecuteLua, 16);
+                        }
+                    }
+                }
+                else if (command == Protocol::Commands::ClickToMoveMove)
+                {
+                    ClickToMoveCommand* ctm = reinterpret_cast<ClickToMoveCommand*>(
+                        reinterpret_cast<BYTE*>(g_commandBuffer) + Protocol::ClickToMoveBufferOffset);
+                    if (!InstallEndSceneSlotHook())
+                    {
+                        CompleteCommand(Protocol::Status::Failed, Protocol::Results::ClickToMoveMove, Protocol::ClickToMoveBufferLength);
+                    }
+                    else
+                    {
+                        g_pendingClickToMove = *ctm;
+                        InterlockedExchange(&g_ctmExecuted, 0);
+                        InterlockedExchange(&g_ctmLastStatus, 0);
+                        InterlockedExchange(&g_ctmState, CtmPending);
+
+                        DWORD start = GetTickCount();
+                        bool completed = false;
+                        while (GetTickCount() - start < 3000)
+                        {
+                            LONG state = InterlockedCompareExchange(&g_ctmState, CtmIdle, CtmDone);
+                            if (state == CtmDone)
+                            {
+                                CompleteCommand(Protocol::Status::Ok, Protocol::Results::ClickToMoveMove, Protocol::ClickToMoveBufferLength);
+                                completed = true;
+                                break;
+                            }
+
+                            state = InterlockedCompareExchange(&g_ctmState, CtmIdle, CtmFailed);
+                            if (state == CtmFailed)
+                            {
+                                CompleteCommand(Protocol::Status::Failed, Protocol::Results::ClickToMoveMove, Protocol::ClickToMoveBufferLength);
+                                completed = true;
+                                break;
+                            }
+
+                            Sleep(10);
+                        }
+
+                        if (!completed)
+                        {
+                            InterlockedExchange(&g_ctmState, CtmIdle);
+                            InterlockedExchange(&g_ctmLastStatus, CtmStatusTimeout);
+                            WriteResultText("ERR:CTMTimeout");
+                            CompleteCommand(Protocol::Status::Failed, Protocol::Results::ClickToMoveMove, Protocol::ClickToMoveBufferLength);
                         }
                     }
                 }

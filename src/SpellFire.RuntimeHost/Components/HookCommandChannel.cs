@@ -86,6 +86,22 @@ namespace SpellFire.RuntimeHost.Components
             return result;
         }
 
+        public HookCommandResult ClickToMoveMove(float x, float y, float z, ulong guid, int action, float precision, int timeoutMilliseconds)
+        {
+            ClearClickToMoveBuffer();
+            accessor.Write(HookProtocol.ClickToMoveBufferOffset, x);
+            accessor.Write(HookProtocol.ClickToMoveBufferOffset + 4, y);
+            accessor.Write(HookProtocol.ClickToMoveBufferOffset + 8, z);
+            accessor.Write(HookProtocol.ClickToMoveBufferOffset + 12, unchecked((long)guid));
+            accessor.Write(HookProtocol.ClickToMoveBufferOffset + 20, action);
+            accessor.Write(HookProtocol.ClickToMoveBufferOffset + 24, precision);
+            accessor.Write(HookProtocol.ClickToMoveBufferOffset + 28, 0);
+
+            HookCommandResult result = Execute(HookProtocol.Commands.ClickToMoveMove, timeoutMilliseconds);
+            result.Ready = result.Ready && result.Result == HookProtocol.Results.ClickToMoveMove;
+            return result;
+        }
+
         private HookCommandResult Execute(int command, int timeoutMilliseconds)
         {
             HookProtocolHeader header = ReadHeader();
@@ -150,6 +166,12 @@ namespace SpellFire.RuntimeHost.Components
         {
             byte[] clear = new byte[HookProtocol.ResultTextLength];
             accessor.WriteArray(HookProtocol.ResultTextOffset, clear, 0, clear.Length);
+        }
+
+        private void ClearClickToMoveBuffer()
+        {
+            byte[] clear = new byte[HookProtocol.ClickToMoveBufferLength];
+            accessor.WriteArray(HookProtocol.ClickToMoveBufferOffset, clear, 0, clear.Length);
         }
 
         private HookProtocolHeader ReadHeader()

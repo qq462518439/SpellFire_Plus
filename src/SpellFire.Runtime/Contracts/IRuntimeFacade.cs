@@ -24,6 +24,8 @@ namespace SpellFire.Runtime.Contracts
 
         RuntimeOperationSnapshot ExecuteLua(int processId, string script);
 
+        RuntimeOperationSnapshot ClickToMoveMove(int processId, float x, float y, float z, ulong guid, int action, float precision);
+
         RuntimeOperationSnapshot ShutdownHook(int processId);
     }
 }

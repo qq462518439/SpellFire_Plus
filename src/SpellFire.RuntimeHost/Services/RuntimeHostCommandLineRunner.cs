@@ -86,6 +86,46 @@ namespace SpellFire.RuntimeHost.Services
                     string script = args.Length > 2 ? string.Join(" ", args, 2, args.Length - 2) : string.Empty;
                     return WriteOperation("lua-exec", service.ExecuteLua(processId, script), writeLine);
                 }
+
+                if (string.Equals(command, "ctm-move", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (args.Length < 5 ||
+                        !float.TryParse(args[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) ||
+                        !float.TryParse(args[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) ||
+                        !float.TryParse(args[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float z))
+                    {
+                        writeLine("FAIL ctm-move Reason=\"InvalidArguments\" Usage=\"ctm-move <pid> <x> <y> <z> [guid] [action] [precision]\"");
+                        return 2;
+                    }
+
+                    ulong guid = 0;
+                    int action = 4;
+                    float precision = 0.5f;
+                    if (args.Length > 5)
+                    {
+                        string guidText = args[5];
+                        if (guidText.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                        {
+                            ulong.TryParse(guidText.Substring(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out guid);
+                        }
+                        else
+                        {
+                            ulong.TryParse(guidText, NumberStyles.Integer, CultureInfo.InvariantCulture, out guid);
+                        }
+                    }
+
+                    if (args.Length > 6)
+                    {
+                        int.TryParse(args[6], NumberStyles.Integer, CultureInfo.InvariantCulture, out action);
+                    }
+
+                    if (args.Length > 7)
+                    {
+                        float.TryParse(args[7], NumberStyles.Float, CultureInfo.InvariantCulture, out precision);
+                    }
+
+                    return WriteOperation("ctm-move", service.ClickToMoveMove(processId, x, y, z, guid, action, precision), writeLine);
+                }
             }
 
             writeLine("FAIL unknown-command Command=\"" + command + "\"");

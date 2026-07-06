@@ -71,6 +71,11 @@ namespace SpellFire.RuntimeHost.Services
             return RunCommand(processId, "lua-exec", hook => hook.ExecuteLua(processId, script ?? string.Empty));
         }
 
+        public RuntimeHostOperationResult ClickToMoveMove(int processId, float x, float y, float z, ulong guid, int action, float precision)
+        {
+            return RunCommand(processId, "ctm-move", hook => hook.ClickToMoveMove(processId, x, y, z, guid, action, precision));
+        }
+
         public RuntimeHostOperationResult ShutdownHook(int processId)
         {
             return RunCommand(processId, "shutdown", hook =>

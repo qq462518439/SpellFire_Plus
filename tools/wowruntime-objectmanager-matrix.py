@@ -86,6 +86,20 @@ def run_probe(command, pid, extra=None):
     return completed.returncode, output
 
 
+def parse_guid(output, marker="Guid=0x"):
+    index = output.find(marker)
+    if index < 0:
+        return None
+
+    start = index + len(marker)
+    end = start
+    while end < len(output) and output[end] in "0123456789abcdefABCDEF":
+        end += 1
+
+    value = output[start:end]
+    return value if value else None
+
+
 def find_wow_pid():
     completed = subprocess.run(
         [
@@ -207,14 +221,19 @@ def main():
             0,
             ["Ready=True", 'Reason="Ready"', "Object=Guid=0x"],
         ) and passed
-        passed = run_case(
-            "live-object-by-local-guid",
-            "object-by-guid",
-            wow_pid,
-            0,
-            ["Ready=True", 'Reason="Ready"', "Object=Guid=0x10"],
-            ["--guid", "16"],
-        ) and passed
+        me_exit, me_output = run_probe("object-me", wow_pid)
+        me_guid = parse_guid(me_output, "Object=Guid=0x")
+        if me_exit == 0 and me_guid:
+            passed = run_case(
+                "live-object-by-local-guid",
+                "object-by-guid",
+                wow_pid,
+                0,
+                ["Ready=True", 'Reason="Ready"', f"Object=Guid=0x{me_guid.upper()}"],
+                ["--guid", "0x" + me_guid],
+            ) and passed
+        else:
+            print(f'SKIP wowruntime-objectmanager-case Name=live-object-by-local-guid Reason="MeGuidUnavailable"')
         passed = run_case(
             "live-object-target-empty-or-ready",
             "object-snapshot",

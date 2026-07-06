@@ -27,11 +27,11 @@
    - 当前状态：已实装并通过 `tools/wowruntime-scripting-matrix.py` 验证。
 
 3. `Movement 最小动作层`
-   - 只做可验证动作：Jump、StartMoveForward、StartMoveBackward、StartStrafeLeft、StartStrafeRight、Stop、StopTo、TurnLeft、TurnRight、TurnStop。
-   - 不做导航，不做路径规划。
+   - 只做可验证动作：Jump、StartMoveForward、StartMoveBackward、StartStrafeLeft、StartStrafeRight、Stop、StopTo、TurnLeft、TurnRight、TurnStop、Go 单点 CTM。
+   - 不做导航，不做路径规划；`Go` 当前只消费第一个目标点，不解释路径队列。
    - 这是 `robotManager` 调度行为的第三前置条件。
-   - 当前状态：已实装 Jump / Forward / Backward / StrafeLeft / StrafeRight / Stop / StopTo / TurnLeft / TurnRight / TurnStop / MovementState / CTM 只读诊断；通过 `tools/wowruntime-movement-matrix.py` 验证。
-   - 当前边界：`FaceTo` / `FaceObject` / `Go` 均返回 `FeatureUnavailable`，避免伪精准朝向或伪导航。
+   - 当前状态：已实装 Jump / Forward / Backward / StrafeLeft / StrafeRight / Stop / StopTo / TurnLeft / TurnRight / TurnStop / MovementState / CTM 诊断 / Go 单点 CTM；通过 `tools/wowruntime-ctm-matrix.py` 与 `tools/wowruntime-movement-matrix.py` 验证。
+   - 当前边界：`FaceTo` / `FaceObject` 仍返回 `FeatureUnavailable`；`Go` 不是导航，只是单点 CTM 动作。
 
 4. `WorldState / RuntimeWorldSnapshot 聚合层`
    - 聚合 `Phase / Player / Me / Target / Counts / NearestUnit / NearestGameObject`。
@@ -49,13 +49,26 @@
    - 不承诺直接跑官方产品，除非 Hook/Lua/Object/Movement 全部验证达标。
 
 ## Immediate Next Mainline
-下一刀是 `RobotManager 变更整理与提交前审计`。`RobotManager 最小成品收口审计` 已通过，项目入口为 `src/SpellFire.RobotManager`，验收入口为 `python tools\robotmanager-minimal-matrix.py`。当前不继续扩 ObjectManager 字段，不进入导航，不接官方 Products；后续 `PulseLoop / ProductContext` 必须先通过契约守卫，不能绕开 `WowRuntime` 直连 Hook / MemoryRobot。
+`Hook CTM native command + Movement.Go 单点样本` 已完成。当前不能直接声称有 Navigation：Navigation 仍由 `UnavailableNavigationService` 返回 NotImplemented，`Movement.Go` 只是单点 CTM，不做路径解释、避障、分段、失败恢复。
+
+`Movement.Go 成品语义收口 + Navigation 前置边界` 已完成第一段：CLI 坐标守卫、InWorld live 矩阵选择、Navigation capability 固定为不可用事实。
+
+- 保持 RuntimeHost / Runtime facade 只暴露受控 CTM 入口，不提供任意 native call。
+- `Movement.Go` 固定为单点 CTM：空点集拒绝，多点只取第一个点，路径队列留给 Navigation。
+- `movement-go` CLI 必须显式传入 `--x --y --z`，禁止隐式使用 `0,0,0`。
+- live movement 矩阵必须先探测 `world-phase`，只选择 `Phase=InWorld` 的 Wow 进程；登录界面、角色列表、加载中进程只能做阶段状态验证，不能跑移动动作。
+- 补充 CTM 停止语义：当前 Stop 仍走 Lua StopMove 系列，不伪装为原生 CTM stop。
+- Navigation capability 已固定输出：`CanFindPath=False / CanExecutePath=False / CanFindZ=False / SupportsPathQueue=False / SupportsArrivalCheck=False / SupportsStuckDetection=False`。
+- 下一刀进入 Navigation 最小契约设计：输入路径点、分段策略、到达判定、卡住判定、Stop/Cleanup 责任。
+- 不进入 Product / Quest / Gather / Combat。
+
+全局真相以 `Documentation/全局真相路线图.md` 为准；CTM 前置审计已归档到 `Documentation/归档/CTM写入前置审计.md`。
 
 - 固定 `tools/wowruntime-matrix.py` 作为 WowRuntime 三部门聚合验收入口。
 - 固定 `tools/wowruntime-worldphase-matrix.py` 作为世界阶段验收入口。
 - 保持 `ObjectManager` 只读，不做 Pulsator。
 - 保持 `Scripting` 只做 LuaSmoke / Execute，不做复杂 return 值系统。
-- 保持 `Movement` 只做 Jump / Forward / Backward / StrafeLeft / StrafeRight / Stop / Turn / 状态读取 / CTM 只读诊断；`FaceTo` / `FaceObject` / `Go` 在专项前必须继续拒绝。
+- 保持 `Movement` 只做 Jump / Forward / Backward / StrafeLeft / StrafeRight / Stop / Turn / 状态读取 / CTM 诊断 / Go 单点 CTM；`FaceTo` / `FaceObject` 继续拒绝。
 - 已产出 `RobotManager` 最小接口草案：`IRobotManager / IProduct / ProductContext / ProductState / RobotManagerResult`。
 - 已建立可重复验收的最小生命周期：`Start -> PulseOnce -> Pause -> Resume -> PulseOnce -> Stop`，当前只运行内置 `NoopProduct`。
 - 已硬化状态机：异常后 `Faulted` 语义、重复 Start/Stop、暂停态 Pulse 拒绝、Stop 后清理一致性。
@@ -63,14 +76,14 @@
 - 已完成最小上下文感知测试 Product：`ContextProbeProduct` 通过 `ProductContext.Scripts.Execute()` 执行安全 Lua 可见消息，并通过 `ProductContext.WorldSnapshots.Capture()` 尝试读取世界快照。
 - 已冻结 `ProductContext` 契约：允许成员为 `ProcessId / World / WorldSnapshots / ObjectManager / Movement / Scripts / Snapshot`，禁止公开 `IWowRuntime / Navigation / RuntimeFacade / MemoryRobot / Hook`。
 - 已完成 `RobotManager` 最小成品收口审计：接口、CLI、矩阵、文档、守卫足以作为后续 Product 体系前置地基。
-- 下一步进入变更整理与提交前审计：按主题拆分未提交改动，确认不夹带导航/官方 Products/Quest/Gather/Combat。
+- RobotManager 当前只作为后续 Product 体系前置地基保留，不再作为当前施工主线。
 - `RobotManager` 只能通过 `WowRuntime` 访问对象、Lua、运动和世界快照。
 - 每轮 RobotManager 施工后必须运行 `python tools\robotmanager-contract-guard.py`。
 
 ## Acceptance Criteria
 - ObjectManager 能通过 CLI/脚本稳定读到本地玩家、目标、对象计数、附近对象。
 - Scripting 能通过 CLI/脚本执行 Lua 冒烟和聊天框可见 Lua。
-- Movement 能通过 CLI/脚本执行 Jump / Forward / Backward / StrafeLeft / StrafeRight / Stop / StopTo / TurnLeft / TurnRight / TurnStop，且 `FaceTo` / `FaceObject` / `Go` 明确拒绝。
+- Movement 能通过 CLI/脚本执行 Jump / Forward / Backward / StrafeLeft / StrafeRight / Stop / StopTo / TurnLeft / TurnRight / TurnStop / Go 单点 CTM，且 `FaceTo` / `FaceObject` 明确拒绝。
 - WorldSnapshot 能通过 CLI/脚本输出 `InWorld / HasPlayer / HasTarget / NearestUnit / NearestGameObject`。
 - WorldPhase Watch 能输出 `FirstPhase / LastPhase / PhaseCounts / EnterCount` 汇总证据。
 - 失败原因必须可区分：Hook 未就绪、进程不存在、内存读取失败、对象不存在、地址模型缺失。
