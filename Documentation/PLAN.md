@@ -49,17 +49,21 @@
    - 不承诺直接跑官方产品，除非 Hook/Lua/Object/Movement 全部验证达标。
 
 ## Immediate Next Mainline
-`Hook CTM native command + Movement.Go 单点样本` 已完成。当前不能直接声称有 Navigation：Navigation 仍由 `UnavailableNavigationService` 返回 NotImplemented，`Movement.Go` 只是单点 CTM，不做路径解释、避障、分段、失败恢复。
+`Hook CTM native command + Movement.Go 单点样本` 已完成。Navigation 已切到 `RDManaged` provider，已证明 RDManaged DLL 可加载、RD session 可创建、本地 mesh 可解压、`FindPath/FindZ` 可返回真实结果；RuntimeHost 冒烟页已增加“导航到选中目标”按钮，可完成 `选中目标 -> RDManaged path -> 分段 CTM -> 到达判定 -> Stop` 的人工验收链。
 
-`Movement.Go 成品语义收口 + Navigation 前置边界` 已完成第一段：CLI 坐标守卫、InWorld live 矩阵选择、Navigation capability 固定为不可用事实。
+当前实测结论：普通平面/近中距离目标已跑通，样本包括 `PathPointCount=7 / DistanceToTarget=1.285 / StopAttempted=True`；楼上目标、明显高度差、复杂障碍没有预期效果属于正常失败，因为运动管理核心还没有解卡、墙距、路径点过滤、动态重规划等能力。
+
+下一主线优先级调整为 `MovementManager 运动管理核心`，先不继续扩导航高级功能：
 
 - 保持 RuntimeHost / Runtime facade 只暴露受控 CTM 入口，不提供任意 native call。
-- `Movement.Go` 固定为单点 CTM：空点集拒绝，多点只取第一个点，路径队列留给 Navigation。
-- `movement-go` CLI 必须显式传入 `--x --y --z`，禁止隐式使用 `0,0,0`。
-- live movement 矩阵必须先探测 `world-phase`，只选择 `Phase=InWorld` 的 Wow 进程；登录界面、角色列表、加载中进程只能做阶段状态验证，不能跑移动动作。
-- 补充 CTM 停止语义：当前 Stop 仍走 Lua StopMove 系列，不伪装为原生 CTM stop。
-- Navigation capability 已固定输出：`CanFindPath=False / CanExecutePath=False / CanFindZ=False / SupportsPathQueue=False / SupportsArrivalCheck=False / SupportsStuckDetection=False`。
-- 下一刀进入 Navigation 最小契约设计：输入路径点、分段策略、到达判定、卡住判定、Stop/Cleanup 责任。
+- 保持 `Movement.Go` 为单点 CTM 原语；路径队列和策略进入 `MovementManager`，不塞回 `ScriptMovementService`。
+- 新增 `MovementManager` 作为 Movement 原语之上的执行核心，职责包括路径点推进、动态到达半径、进度监测、超时、解卡、Stop/Cleanup。
+- 第一刀：把现有 `NavigationExecutionService` 中的分段推进/等待逻辑下沉到 `MovementManager`，Navigation 只负责 `RDManaged FindPath` 和调用运动核心。
+- 第二刀：补 `MovementProgressSnapshot`，记录当前段、目标点、当前位置、速度、最佳距离、最近进展时间、CTM 状态。
+- 第三刀：实现最小解卡策略，先只做安全动作：Stop -> Jump -> 小幅重新 CTM -> 重新采样，不做随机乱跑。
+- 第四刀：接入路径点过滤和墙距接口预留：短点合并、过近点跳过、长段拆分、墙距修正只在 RDManaged `FixPathByDistanceToWall` 验证后启用。
+- 第五刀：RuntimeHost 冒烟页显示运动核心诊断，不只显示最终 Success/Stuck/Timeout。
+- Navigation capability 当前仍保持 `CanExecutePath=False`，直到 MovementManager 在普通目标、长距离目标、障碍目标三类人工冒烟中稳定。
 - 不进入 Product / Quest / Gather / Combat。
 
 全局真相以 `Documentation/全局真相路线图.md` 为准；CTM 前置审计已归档到 `Documentation/归档/CTM写入前置审计.md`。

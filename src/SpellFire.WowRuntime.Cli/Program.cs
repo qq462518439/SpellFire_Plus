@@ -25,6 +25,16 @@ namespace SpellFire.WowRuntime.Cli
             float x = ParseFloat(GetArg(args, "--x", "0"), 0);
             float y = ParseFloat(GetArg(args, "--y", "0"), 0);
             float z = ParseFloat(GetArg(args, "--z", "0"), 0);
+            float fromX = ParseFloat(GetArg(args, "--from-x", "0"), 0);
+            float fromY = ParseFloat(GetArg(args, "--from-y", "0"), 0);
+            float fromZ = ParseFloat(GetArg(args, "--from-z", "0"), 0);
+            float toX = ParseFloat(GetArg(args, "--to-x", "0"), 0);
+            float toY = ParseFloat(GetArg(args, "--to-y", "0"), 0);
+            float toZ = ParseFloat(GetArg(args, "--to-z", "0"), 0);
+            int mapId = ParseInt(GetArg(args, "--map", "0"), 0);
+            int timeoutMs = ParseInt(GetArg(args, "--timeout-ms", "4500"), 4500);
+            int maxPoints = ParseInt(GetArg(args, "--max-points", "8"), 8);
+            float arrival = ParseFloat(GetArg(args, "--arrival", "1.75"), 1.75f);
             bool hasX = HasArg(args, "--x");
             bool hasY = HasArg(args, "--y");
             bool hasZ = HasArg(args, "--z");
@@ -116,6 +126,28 @@ namespace SpellFire.WowRuntime.Cli
                     return PrintMovementSpeedSampleResult(command, processId, runtime, action);
                 case "navigation-capability":
                     return PrintNavigationCapabilityResult(command, processId, runtime.Navigation.GetCapability());
+                case "navigation-find-path":
+                    return PrintNavigationPathResult(command, processId, runtime.Navigation.FindPath(new PathQuery(
+                        mapId,
+                        new Vector3(fromX, fromY, fromZ),
+                        new Vector3(toX, toY, toZ))));
+                case "navigation-find-z":
+                    return PrintNavigationFindZResult(command, processId, runtime.Navigation, mapId, x, y, z);
+                case "navigation-execute-to":
+                    if (!hasX || !hasY || !hasZ)
+                    {
+                        Console.WriteLine(
+                            "Result=Fail Command=\"{0}\" ProcessId={1} Ready=False Reason=\"InvalidArgument\" Detail=\"navigation-execute-to requires explicit --x --y --z.\"",
+                            Escape(command),
+                            processId);
+                        return 1;
+                    }
+
+                    return PrintNavigationExecutionResult(command, processId, new NavigationExecutionService(runtime.Navigation, runtime.World, runtime.Movement).ExecuteTo(
+                        new Vector3(x, y, z),
+                        arrival,
+                        timeoutMs,
+                        maxPoints));
                 default:
                     Console.WriteLine("Result=Fail Command=\"{0}\" Reason=\"UnknownCommand\" Detail=\"Unsupported command.\" ProcessId={1}", Escape(command), processId);
                     return 2;
@@ -420,14 +452,14 @@ namespace SpellFire.WowRuntime.Cli
             if (result == null)
             {
                 Console.WriteLine(
-                    "Result=Fail Command=\"{0}\" ProcessId={1} Ready=False Reason=\"NavigationCapabilityUnavailable\" Detail=\"Navigation capability snapshot is unavailable.\" CanFindPath=False CanExecutePath=False CanFindZ=False SupportsPathQueue=False SupportsArrivalCheck=False SupportsStuckDetection=False StopResponsibility=\"\"",
+                "Result=Fail Command=\"{0}\" ProcessId={1} Ready=False Reason=\"NavigationCapabilityUnavailable\" Detail=\"Navigation capability snapshot is unavailable.\" CanFindPath=False CanExecutePath=False CanFindZ=False SupportsPathQueue=False SupportsArrivalCheck=False SupportsStuckDetection=False StopResponsibility=\"\"",
                     Escape(command),
                     processId);
                 return 1;
             }
 
             Console.WriteLine(
-                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"Ready\" CanFindPath={2} CanExecutePath={3} CanFindZ={4} SupportsPathQueue={5} SupportsArrivalCheck={6} SupportsStuckDetection={7} StopResponsibility=\"{8}\" Detail=\"{9}\"",
+                "Result=OK Command=\"{0}\" ProcessId={1} Ready=True Reason=\"Ready\" CanFindPath={2} CanExecutePath={3} CanFindZ={4} SupportsPathQueue={5} SupportsArrivalCheck={6} SupportsStuckDetection={7} RdManagedAssemblyPresent={8} RdManagedSessionReady={9} TileProviderReady={10} StopResponsibility=\"{11}\" Detail=\"{12}\"",
                 Escape(command),
                 processId,
                 result.CanFindPath,
@@ -436,9 +468,98 @@ namespace SpellFire.WowRuntime.Cli
                 result.SupportsPathQueue,
                 result.SupportsArrivalCheck,
                 result.SupportsStuckDetection,
+                result.RdManagedAssemblyPresent,
+                result.RdManagedSessionReady,
+                result.TileProviderReady,
                 Escape(result.StopResponsibility),
                 Escape(result.Detail));
             return 0;
+        }
+
+        private static int PrintNavigationPathResult(string command, int processId, PathResult result)
+        {
+            if (result == null)
+            {
+                Console.WriteLine(
+                    "Result=Fail Command=\"{0}\" ProcessId={1} Ready=False Reason=\"PathResultUnavailable\" Detail=\"Navigation path result is unavailable.\" PathStatus=Unavailable PointCount=0",
+                    Escape(command),
+                    processId);
+                return 1;
+            }
+
+            bool ready = result.Success;
+            Console.WriteLine(
+                "Result={0} Command=\"{1}\" ProcessId={2} Ready={3} Reason=\"{4}\" Detail=\"{5}\" PathStatus={6} PointCount={7} FirstPoint={8} LastPoint={9}",
+                ready ? "OK" : "Fail",
+                Escape(command),
+                processId,
+                ready,
+                result.Status,
+                Escape(result.Detail),
+                result.Status,
+                result.Points == null ? 0 : result.Points.Count,
+                FormatPathPoint(result, true),
+                FormatPathPoint(result, false));
+            return ready ? 0 : 1;
+        }
+
+        private static string FormatPathPoint(PathResult result, bool first)
+        {
+            if (result == null || result.Points == null || result.Points.Count == 0)
+            {
+                return "Unavailable";
+            }
+
+            Vector3 value = first ? result.Points[0] : result.Points[result.Points.Count - 1];
+            return FormatPosition(value);
+        }
+
+        private static int PrintNavigationFindZResult(string command, int processId, INavigationService navigation, int mapId, float x, float y, float hintZ)
+        {
+            float z;
+            bool found = navigation.TryFindZ(mapId, x, y, hintZ, out z);
+            Console.WriteLine(
+                "Result={0} Command=\"{1}\" ProcessId={2} Ready={3} Reason=\"{4}\" MapId={5} X={6:0.###} Y={7:0.###} HintZ={8:0.###} Z={9:0.###}",
+                found ? "OK" : "Fail",
+                Escape(command),
+                processId,
+                found,
+                found ? "Success" : "FindZFailed",
+                mapId,
+                x,
+                y,
+                hintZ,
+                z);
+            return found ? 0 : 1;
+        }
+
+        private static int PrintNavigationExecutionResult(string command, int processId, NavigationExecutionSnapshot result)
+        {
+            if (result == null)
+            {
+                Console.WriteLine(
+                    "Result=Fail Command=\"{0}\" ProcessId={1} Ready=False Reason=\"NavigationExecutionUnavailable\" Detail=\"Navigation execution snapshot is unavailable.\"",
+                    Escape(command),
+                    processId);
+                return 1;
+            }
+
+            Console.WriteLine(
+                "Result={0} Command=\"{1}\" ProcessId={2} Ready={3} Reason=\"{4}\" Detail=\"{5}\" PathPointCount={6} VisitedPointCount={7} Start={8} End={9} Target={10} DistanceToTarget={11:0.###} StopAttempted={12}",
+                result.Success ? "OK" : "Fail",
+                Escape(command),
+                processId,
+                result.Success,
+                result.Status,
+                Escape(result.Detail),
+                result.PathPointCount,
+                result.VisitedPointCount,
+                FormatPosition(result.Start),
+                FormatPosition(result.End),
+                FormatPosition(result.Target),
+                result.DistanceToTarget,
+                result.StopAttempted);
+            return result.Success ? 0 : 1;
         }
 
         private static int PrintClickToMoveDiagnosticResult(string command, int processId, WowRuntimeResult<ClickToMoveDiagnosticSnapshot> result)

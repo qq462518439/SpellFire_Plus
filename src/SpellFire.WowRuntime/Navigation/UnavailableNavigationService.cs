@@ -11,6 +11,9 @@ namespace SpellFire.WowRuntime.Navigation
                 false,
                 false,
                 false,
+                false,
+                false,
+                false,
                 "Movement.StopMove/StopMoveTo remain the caller cleanup path; native CTM stop is not proven.",
                 "Navigation is not implemented. Movement.Go is only a single-point CTM primitive, not a path executor.");
         }

@@ -9,6 +9,9 @@ namespace SpellFire.WowRuntime.Navigation
             bool supportsPathQueue,
             bool supportsArrivalCheck,
             bool supportsStuckDetection,
+            bool rdManagedAssemblyPresent,
+            bool rdManagedSessionReady,
+            bool tileProviderReady,
             string stopResponsibility,
             string detail)
         {
@@ -18,6 +21,9 @@ namespace SpellFire.WowRuntime.Navigation
             SupportsPathQueue = supportsPathQueue;
             SupportsArrivalCheck = supportsArrivalCheck;
             SupportsStuckDetection = supportsStuckDetection;
+            RdManagedAssemblyPresent = rdManagedAssemblyPresent;
+            RdManagedSessionReady = rdManagedSessionReady;
+            TileProviderReady = tileProviderReady;
             StopResponsibility = stopResponsibility ?? string.Empty;
             Detail = detail ?? string.Empty;
         }
@@ -33,6 +39,12 @@ namespace SpellFire.WowRuntime.Navigation
         public bool SupportsArrivalCheck { get; }
 
         public bool SupportsStuckDetection { get; }
+
+        public bool RdManagedAssemblyPresent { get; }
+
+        public bool RdManagedSessionReady { get; }
+
+        public bool TileProviderReady { get; }
 
         public string StopResponsibility { get; }
 

@@ -44,7 +44,7 @@ namespace SpellFire.WowRuntime.Infrastructure
                 new ObjectManagerWorldSnapshotService(processId, objectManager, world),
                 objectManager,
                 new ScriptMovementService(scripts, world, processId, runtimeFacade),
-                new UnavailableNavigationService(),
+                new RdManagedNavigationService(),
                 scripts,
                 bot);
         }
