@@ -12,7 +12,9 @@ namespace SpellFire.WowRuntime.Movement
             Vector3 current,
             double distance,
             double bestDistance,
+            int sampleCount,
             int timeoutMs,
+            MovementStateSnapshot movementState,
             bool stopAttempted)
         {
             Status = status;
@@ -22,7 +24,9 @@ namespace SpellFire.WowRuntime.Movement
             Current = current;
             Distance = distance;
             BestDistance = bestDistance;
+            SampleCount = sampleCount;
             TimeoutMs = timeoutMs;
+            MovementState = movementState;
             StopAttempted = stopAttempted;
         }
 
@@ -40,8 +44,39 @@ namespace SpellFire.WowRuntime.Movement
 
         public double BestDistance { get; }
 
+        public int SampleCount { get; }
+
         public int TimeoutMs { get; }
 
+        public MovementStateSnapshot MovementState { get; }
+
         public bool StopAttempted { get; }
+
+        public static MovementProgressSnapshot Create(
+            MovementProgressStatus status,
+            string detail,
+            int pointIndex,
+            Vector3 point,
+            Vector3 current,
+            double distance,
+            double bestDistance,
+            int sampleCount,
+            int timeoutMs,
+            MovementStateSnapshot movementState,
+            bool stopAttempted)
+        {
+            return new MovementProgressSnapshot(
+                status,
+                detail + " PointIndex=" + pointIndex + " Point=" + MovementText.FormatVector(point) + " Current=" + MovementText.FormatVector(current),
+                pointIndex,
+                point,
+                current,
+                distance,
+                bestDistance,
+                sampleCount,
+                timeoutMs,
+                movementState,
+                stopAttempted);
+        }
     }
 }

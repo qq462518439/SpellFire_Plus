@@ -24,6 +24,9 @@ wRobot 不是把“解卡”当作导航部门处理，而是放在移动执行�
 - 楼上目标、高度差、复杂障碍失败属于预期，因为还没有完整运动管理核心。
 - 已新增 `IMovementManager`、`CtmMovementManager`、`MovementProgressSnapshot`、`MovementProgressStatus`。
 - `NavigationExecutionService` 已开始改为委托 `IMovementManager`，但仍是过渡调度壳。
+- 本轮已把路径点循环下沉到 `MovementPathExecutor/IMovementManager.MovePath`，`NavigationExecutionService` 不再自己逐点 CTM。
+- 本轮已拆出 `MovementPathPointFilter`、`MovementStuckDetector`、`MovementStuckResolver`、`MovementStopPolicy`，但 `MovementStuckResolver` 目前只允许一次安全恢复：`Stop -> Jump -> re-CTM`。
+- `CanExecutePath` 仍不提升为完整能力声明；当前只证明“冒烟路径执行可跑”，还没证明 MovementManager 在复杂障碍、高差、长距离场景稳定。
 
 ## 部门边界
 - `IMovementService`：底层动作原语，只负责 `Go/Stop/Jump/Turn/状态读取`，不做路径队列、不做解卡、不做策略。
@@ -80,6 +83,21 @@ wRobot 不是把“解卡”当作导航部门处理，而是放在移动执行�
    - `NavigationExecutionService` 只负责 `FindPath -> MovementManager.MovePath/MoveToPoint -> 汇总结果`。
    - 不再拥有卡住判定、超时预算、Stop 细节。
    - 允许 Navigation 在 MovementManager 返回 `Stuck/Timeout` 后触发“重新 FindPath”策略，但策略入口必须是重新寻路，不是直接解卡。
+
+## 本轮完成
+- `CtmMovementManager` 已从“大函数执行器”收成 facade。
+- `MovementPathExecutor` 成为路径/点执行核心，拥有 `MovePath` 和 `MoveToPoint`。
+- `MovementProgressTracker` 负责位置、距离、最佳距离、采样数、MovementState 采样。
+- `MovementStuckDetector` 负责卡住判定。
+- `MovementStuckResolver` 作为 MovementManager 子部门落地，第一版只做一次安全恢复，不做随机动作。
+- `MovementPathPointFilter` 已具备过近点跳过；长段拆分仍后置。
+- `NavigationExecutionService` 已改为调用 `IMovementManager.MovePath`，只保留路径生成和结果映射。
+
+## 下一刀
+1. 补 `MovementPathPointFilter` 长段拆分，避免 CTM 单段过长导致采样和失败原因不稳定。
+2. 把 `MovementPathExecutionResult` 的诊断字段扩成稳定 DTO，避免只靠字符串传递恢复次数、过滤点数、最后点索引。
+3. 新增 MovementManager 专属 CLI/矩阵，只测 `MovePath/MoveToPoint` 语义，不再借 Navigation 矩阵间接验收。
+4. 人工冒烟只测普通目标、中距离目标、轻微障碍目标；楼上/隔墙失败继续归类为 MovementManager 未完成能力，不作为导航路径层失败。
 
 ## 验收入口
 - 构建：`dotnet build .\src\SpellFire.WowRuntime.Cli\SpellFire.WowRuntime.Cli.csproj -c Debug -p:UseSharedCompilation=false`

@@ -70,43 +70,39 @@ namespace SpellFire.WowRuntime.Navigation
                     false);
             }
 
-            int limit = Math.Min(path.Points.Count, maxPoints);
-            int visited = 0;
-            Vector3 lastPosition = start;
-
-            for (int i = 0; i < limit; i++)
+            MovementPathExecutionResult movement = movementManager.MovePath(
+                path.Points,
+                start,
+                arrivalDistance,
+                perPointTimeoutMs,
+                maxPoints);
+            if (movement.Status != MovementProgressStatus.Arrived)
             {
-                Vector3 point = path.Points[i];
-                if (Distance(lastPosition, point) <= arrivalDistance)
-                {
-                    visited++;
-                    continue;
-                }
-
-                MovementProgressSnapshot progress = movementManager.MoveToPoint(i, point, arrivalDistance, perPointTimeoutMs);
-                if (progress.Status != MovementProgressStatus.Arrived)
-                {
-                    return Finish(MapProgressStatus(progress.Status), FormatProgressDetail(progress), path.Points.Count, visited, start, progress.Current, target, progress.StopAttempted);
-                }
-
-                visited++;
-                lastPosition = progress.Current;
+                return Finish(
+                    MapProgressStatus(movement.Status),
+                    FormatPathDetail(movement),
+                    path.Points.Count,
+                    movement.VisitedPointCount,
+                    start,
+                    movement.End,
+                    target,
+                    movement.StopAttempted);
             }
 
             WowRuntimeResult<PlayerSnapshot> final = world.GetPlayer();
             if (!final.Success)
             {
-                return Finish(NavigationExecutionStatus.PlayerUnavailable, final.Detail, path.Points.Count, visited, start, lastPosition, target, false);
+                return Finish(NavigationExecutionStatus.PlayerUnavailable, final.Detail, path.Points.Count, movement.VisitedPointCount, start, movement.End, target, false);
             }
 
-            lastPosition = final.Value.Position;
+            Vector3 lastPosition = final.Value.Position;
             NavigationExecutionStatus status = Distance(lastPosition, target) <= Math.Max(arrivalDistance, 2.5f)
                 ? NavigationExecutionStatus.Success
                 : NavigationExecutionStatus.Timeout;
             string detail = status == NavigationExecutionStatus.Success
                 ? "Navigation execution reached target tolerance."
                 : "Navigation execution consumed allowed points but target tolerance was not reached.";
-            return Finish(status, detail, path.Points.Count, visited, start, lastPosition, target, false);
+            return Finish(status, detail, path.Points.Count, movement.VisitedPointCount, start, lastPosition, target, false);
         }
 
         private static NavigationExecutionStatus MapProgressStatus(MovementProgressStatus status)
@@ -139,7 +135,38 @@ namespace SpellFire.WowRuntime.Navigation
                    " MovementStatus=" + progress.Status +
                    " Distance=" + progress.Distance.ToString("0.###") +
                    " BestDistance=" + progress.BestDistance.ToString("0.###") +
-                   " TimeoutMs=" + progress.TimeoutMs;
+                   " SampleCount=" + progress.SampleCount +
+                   " TimeoutMs=" + progress.TimeoutMs +
+                   FormatMovementState(progress.MovementState);
+        }
+
+        private static string FormatPathDetail(MovementPathExecutionResult result)
+        {
+            if (result == null)
+            {
+                return "Movement path execution unavailable.";
+            }
+
+            return result.Detail +
+                   " MovementPathStatus=" + result.Status +
+                   " MovementVisitedPoints=" + result.VisitedPointCount +
+                   " MovementPathPoints=" + result.PathPointCount +
+                   " " + FormatProgressDetail(result.LastProgress);
+        }
+
+        private static string FormatMovementState(MovementStateSnapshot state)
+        {
+            if (state == null)
+            {
+                return " MovementState=Unavailable";
+            }
+
+            return " MovementInMovement=" + state.InMovement +
+                   " MovementFlags=" + state.Flags +
+                   " ClickToMoveTypeRaw=" + state.ClickToMoveTypeRaw +
+                   " ClickToMoveState=" + state.ClickToMoveState +
+                   " SpeedKnown=" + state.SpeedKnown +
+                   " Speed=" + state.Speed.ToString("0.###");
         }
 
         private static NavigationExecutionSnapshot Finish(
